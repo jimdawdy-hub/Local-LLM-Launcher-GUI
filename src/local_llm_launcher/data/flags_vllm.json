@@ -1,0 +1,238 @@
+{
+  "engine": "vllm",
+  "description": "Curated vLLM flags. Catalog structure inspired by vllm-cli (Chen-zexi, MIT).",
+  "flags": [
+    {
+      "key": "port",
+      "flag": "--port",
+      "label": "Port",
+      "type": "int",
+      "default": 8000,
+      "min": 1024,
+      "max": 65535,
+      "category": "essential",
+      "help": "The network port the server listens on. Apps connect to http://localhost:PORT/v1. Change it only if another program already uses this port."
+    },
+    {
+      "key": "max_model_len",
+      "flag": "--max-model-len",
+      "label": "Context window size",
+      "type": "int",
+      "default": 8192,
+      "min": 512,
+      "max": 262144,
+      "step": 1024,
+      "category": "essential",
+      "help": "How much text (in tokens — roughly 3/4 of a word each) the model can keep in mind at once: your prompt plus its answer. Bigger needs more GPU memory. 8192 is plenty for chat; raise it for long documents."
+    },
+    {
+      "key": "gpu_memory_utilization",
+      "flag": "--gpu-memory-utilization",
+      "label": "GPU memory usage limit",
+      "type": "float",
+      "default": 0.85,
+      "min": 0.3,
+      "max": 0.98,
+      "step": 0.01,
+      "category": "essential",
+      "help": "The fraction of each GPU's memory vLLM is allowed to claim. Higher fits bigger models but can fail to start if your desktop is also using the GPU. 0.85 is the safe choice on consumer cards."
+    },
+    {
+      "key": "tensor_parallel_size",
+      "flag": "--tensor-parallel-size",
+      "label": "Number of GPUs to split across",
+      "type": "int",
+      "default": 1,
+      "min": 1,
+      "max": 8,
+      "category": "essential",
+      "help": "Splits the model across this many GPUs (called tensor parallelism). Use all your GPUs for big models. Must divide evenly into your GPU count."
+    },
+    {
+      "key": "max_num_seqs",
+      "flag": "--max-num-seqs",
+      "label": "Simultaneous requests",
+      "type": "int",
+      "default": 4,
+      "min": 1,
+      "max": 256,
+      "category": "performance",
+      "help": "How many chat requests the server handles at the same time. If it's just you, 1-4 keeps memory use low and predictable. Higher values reserve more GPU memory."
+    },
+    {
+      "key": "dtype",
+      "flag": "--dtype",
+      "label": "Math precision",
+      "type": "choice",
+      "default": "auto",
+      "choices": ["auto", "bfloat16", "float16"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "The number format used for calculations. 'auto' picks the right one for your model and GPU — leave it alone unless you know why you're changing it."
+    },
+    {
+      "key": "quantization",
+      "flag": "--quantization",
+      "label": "Quantization override",
+      "type": "choice",
+      "default": null,
+      "choices": [null, "awq", "awq_marlin", "gptq", "fp8", "bitsandbytes", "compressed-tensors", "modelopt"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "Forces a specific compression format instead of letting vLLM read it from the model files. Almost always leave this empty — vLLM auto-detects, and a wrong value makes the launch fail with an error."
+    },
+    {
+      "key": "kv_cache_dtype",
+      "flag": "--kv-cache-dtype",
+      "label": "Conversation memory compression",
+      "type": "choice",
+      "default": "auto",
+      "choices": ["auto", "fp8"],
+      "category": "performance",
+      "help": "Compresses the KV cache (the GPU memory that holds the conversation so far). 'fp8' roughly halves that memory with little quality loss — a great trick when a model barely fits."
+    },
+    {
+      "key": "cpu_offload_gb",
+      "flag": "--cpu-offload-gb",
+      "label": "Spill to system RAM (GB per GPU)",
+      "type": "int",
+      "default": 0,
+      "min": 0,
+      "max": 64,
+      "category": "advanced",
+      "advanced": true,
+      "help": "Moves part of the model into regular RAM when it doesn't fit in GPU memory. It makes impossible models run — but around 10x slower, because data crawls back and forth over the PCIe slot every step. Last resort only."
+    },
+    {
+      "key": "enforce_eager",
+      "flag": "--enforce-eager",
+      "label": "Disable CUDA graphs",
+      "type": "bool",
+      "default": false,
+      "category": "advanced",
+      "advanced": true,
+      "help": "Turns off a speed optimization (CUDA graphs) to save a little GPU memory during startup. Generation gets noticeably slower. Only use when a model fails to start at the very last step."
+    },
+    {
+      "key": "swap_space",
+      "flag": "--swap-space",
+      "label": "Overflow space (GB)",
+      "type": "int",
+      "default": 4,
+      "min": 0,
+      "max": 32,
+      "category": "advanced",
+      "advanced": true,
+      "help": "RAM set aside for paused conversations when many people use the server at once. With one user this barely matters — leave the default."
+    },
+    {
+      "key": "enable_prefix_caching",
+      "flag": "--enable-prefix-caching",
+      "label": "Reuse repeated prompts",
+      "type": "bool",
+      "default": true,
+      "category": "performance",
+      "help": "Remembers the start of earlier prompts so repeated requests (like a long system prompt) don't get re-processed every time. Almost always a free speed win."
+    },
+    {
+      "key": "enable_chunked_prefill",
+      "flag": "--enable-chunked-prefill",
+      "label": "Smooth long-prompt processing",
+      "type": "bool",
+      "default": true,
+      "category": "performance",
+      "help": "Processes long prompts in slices so the server stays responsive while reading them. Good default; turn off only when troubleshooting."
+    },
+    {
+      "key": "max_num_batched_tokens",
+      "flag": "--max-num-batched-tokens",
+      "label": "Tokens processed per step",
+      "type": "int",
+      "default": null,
+      "min": 256,
+      "max": 32768,
+      "category": "advanced",
+      "advanced": true,
+      "help": "How much text the engine chews through per internal step. Leave empty for automatic. Bigger is faster on long prompts but uses more memory."
+    },
+    {
+      "key": "trust_remote_code",
+      "flag": "--trust-remote-code",
+      "label": "Allow model's custom code",
+      "type": "bool",
+      "default": false,
+      "category": "essential",
+      "help": "Some newer models ship their own Python code that must run for the model to work. Only enable for models from sources you trust — it executes that code on your machine."
+    },
+    {
+      "key": "reasoning_parser",
+      "flag": "--reasoning-parser",
+      "label": "Thinking-model format",
+      "type": "choice",
+      "default": null,
+      "choices": [null, "qwen3", "deepseek_r1", "gemma4", "granite"],
+      "category": "essential",
+      "help": "For 'thinking' models (ones that reason step-by-step before answering): tells the server how to separate the thinking from the final answer. Pick the one matching your model family, or leave empty for normal models."
+    },
+    {
+      "key": "tool_call_parser",
+      "flag": "--tool-call-parser",
+      "label": "Tool-calling format",
+      "type": "choice",
+      "default": null,
+      "choices": [null, "hermes", "mistral", "llama3_json", "qwen3_coder", "gemma4"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "Lets the model call functions/tools in apps that support it. Pick the parser matching your model family. Leave empty if you just want chat."
+    },
+    {
+      "key": "served_model_name",
+      "flag": "--served-model-name",
+      "label": "Model name shown to apps",
+      "type": "string",
+      "default": null,
+      "category": "api",
+      "help": "A friendly name apps will see instead of the long repository path. Optional."
+    },
+    {
+      "key": "api_key",
+      "flag": "--api-key",
+      "label": "API key (password)",
+      "type": "string",
+      "default": null,
+      "category": "api",
+      "help": "If set, apps must send this key to use the server. Recommended if other devices on your network can reach this computer."
+    },
+    {
+      "key": "device_ids",
+      "flag": null,
+      "label": "Which GPUs to use",
+      "type": "string",
+      "default": null,
+      "category": "essential",
+      "help": "Comma-separated GPU numbers (e.g. '0,1' for both, '1' for just the second card). Useful to keep your monitor's GPU free. Leave empty to use all GPUs.",
+      "env_var": "CUDA_VISIBLE_DEVICES"
+    },
+    {
+      "key": "hf_token",
+      "flag": null,
+      "label": "Hugging Face access token",
+      "type": "string",
+      "default": null,
+      "category": "api",
+      "secret": true,
+      "help": "Needed only for gated models (like Llama) that require accepting a license on huggingface.co first. Create one at huggingface.co/settings/tokens.",
+      "env_var": "HF_TOKEN"
+    },
+    {
+      "key": "extra_args",
+      "flag": null,
+      "label": "Extra raw flags",
+      "type": "string",
+      "default": null,
+      "category": "advanced",
+      "advanced": true,
+      "help": "Any additional vLLM command-line flags, exactly as you'd type them in a terminal. For experts; the app passes them through unchanged."
+    }
+  ]
+}

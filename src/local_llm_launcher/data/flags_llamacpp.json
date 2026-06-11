@@ -1,0 +1,172 @@
+{
+  "engine": "llamacpp",
+  "description": "Curated llama.cpp (llama-server) flags with plain-English help.",
+  "flags": [
+    {
+      "key": "port",
+      "flag": "--port",
+      "label": "Port",
+      "type": "int",
+      "default": 8080,
+      "min": 1024,
+      "max": 65535,
+      "category": "essential",
+      "help": "The network port the server listens on. Apps connect to http://localhost:PORT/v1. Change it only if another program already uses this port."
+    },
+    {
+      "key": "ctx_size",
+      "flag": "--ctx-size",
+      "label": "Context window size",
+      "type": "int",
+      "default": 8192,
+      "min": 512,
+      "max": 262144,
+      "step": 1024,
+      "category": "essential",
+      "help": "How much text (in tokens — roughly 3/4 of a word each) the model can keep in mind at once. Bigger needs more memory. 8192 is plenty for chat."
+    },
+    {
+      "key": "n_gpu_layers",
+      "flag": "--n-gpu-layers",
+      "label": "Layers on GPU",
+      "type": "int",
+      "default": 999,
+      "min": 0,
+      "max": 999,
+      "category": "essential",
+      "help": "How many of the model's layers run on the GPU instead of the CPU. 999 means 'all of them' (fastest). Lower it only when the model doesn't fully fit in GPU memory — each layer moved to CPU slows things down."
+    },
+    {
+      "key": "threads",
+      "flag": "--threads",
+      "label": "CPU threads",
+      "type": "int",
+      "default": null,
+      "min": 1,
+      "max": 128,
+      "category": "performance",
+      "help": "How many CPU cores to use for the parts that run on the CPU. Leave empty for automatic. Matters most when some layers aren't on the GPU."
+    },
+    {
+      "key": "flash_attn",
+      "flag": "--flash-attn",
+      "label": "Flash attention",
+      "type": "choice",
+      "default": "auto",
+      "choices": ["auto", "on", "off"],
+      "category": "performance",
+      "help": "A faster, more memory-efficient way to compute attention (the model's core math). 'auto' enables it when your hardware supports it."
+    },
+    {
+      "key": "cache_type_k",
+      "flag": "--cache-type-k",
+      "label": "Conversation memory compression (keys)",
+      "type": "choice",
+      "default": "f16",
+      "choices": ["f16", "q8_0", "q4_0"],
+      "category": "performance",
+      "help": "Compresses half of the conversation memory (the 'K' cache). q8_0 halves it with minimal quality loss — useful for long contexts on small GPUs."
+    },
+    {
+      "key": "cache_type_v",
+      "flag": "--cache-type-v",
+      "label": "Conversation memory compression (values)",
+      "type": "choice",
+      "default": "f16",
+      "choices": ["f16", "q8_0", "q4_0"],
+      "category": "performance",
+      "help": "Compresses the other half of the conversation memory (the 'V' cache). Usually set to match the K cache setting. Requires flash attention on."
+    },
+    {
+      "key": "batch_size",
+      "flag": "--batch-size",
+      "label": "Prompt chunk size",
+      "type": "int",
+      "default": 2048,
+      "min": 32,
+      "max": 8192,
+      "category": "advanced",
+      "advanced": true,
+      "help": "How much of your prompt is processed per gulp. Bigger is faster for long prompts but uses more memory. The default is fine for almost everyone."
+    },
+    {
+      "key": "parallel",
+      "flag": "--parallel",
+      "label": "Simultaneous requests",
+      "type": "int",
+      "default": 1,
+      "min": 1,
+      "max": 16,
+      "category": "performance",
+      "help": "How many chat requests are handled at once. Note: the context window gets divided between them, so 4 parallel slots each get a quarter of the context."
+    },
+    {
+      "key": "mlock",
+      "flag": "--mlock",
+      "label": "Lock model in RAM",
+      "type": "bool",
+      "default": false,
+      "category": "advanced",
+      "advanced": true,
+      "help": "Prevents the operating system from swapping the model out of RAM to disk. Helps keep speed steady on Macs; needs enough free RAM to hold the whole model."
+    },
+    {
+      "key": "no_mmap",
+      "flag": "--no-mmap",
+      "label": "Load fully into RAM",
+      "type": "bool",
+      "default": false,
+      "category": "advanced",
+      "advanced": true,
+      "help": "Reads the whole model file into RAM up front instead of streaming it from disk as needed. Slower start, sometimes smoother generation."
+    },
+    {
+      "key": "split_mode",
+      "flag": "--split-mode",
+      "label": "Multi-GPU split style",
+      "type": "choice",
+      "default": "layer",
+      "choices": ["layer", "row", "none"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "How the model is divided across multiple GPUs. 'layer' (whole layers per GPU) is the safe default. 'none' uses only the main GPU."
+    },
+    {
+      "key": "jinja",
+      "flag": "--jinja",
+      "label": "Use model's chat template",
+      "type": "bool",
+      "default": true,
+      "category": "essential",
+      "help": "Formats conversations the exact way the model was trained to expect (using the template embedded in the model file). Leave on — turning it off often causes weird replies."
+    },
+    {
+      "key": "alias",
+      "flag": "--alias",
+      "label": "Model name shown to apps",
+      "type": "string",
+      "default": null,
+      "category": "api",
+      "help": "A friendly name apps will see instead of the file name. Optional."
+    },
+    {
+      "key": "api_key",
+      "flag": "--api-key",
+      "label": "API key (password)",
+      "type": "string",
+      "default": null,
+      "category": "api",
+      "help": "If set, apps must send this key to use the server. Recommended if other devices on your network can reach this computer."
+    },
+    {
+      "key": "extra_args",
+      "flag": null,
+      "label": "Extra raw flags",
+      "type": "string",
+      "default": null,
+      "category": "advanced",
+      "advanced": true,
+      "help": "Any additional llama-server command-line flags, exactly as you'd type them in a terminal. For experts; the app passes them through unchanged."
+    }
+  ]
+}

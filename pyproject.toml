@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-llm-launcher-gui"
+version = "0.1.0"
+description = "A friendly GUI for downloading and launching local LLMs with vLLM or llama.cpp, with hardware-aware traffic-light guidance for every flag."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Jim Dawdy" }]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "huggingface_hub>=0.23",
+    "psutil>=5.9",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+local-llm-launcher = "local_llm_launcher.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+local_llm_launcher = ["data/*.json", "static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
