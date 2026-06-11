@@ -132,6 +132,15 @@
       "help": "How the model is divided across multiple GPUs. 'layer' (whole layers per GPU) is the safe default. 'none' uses only the main GPU."
     },
     {
+      "key": "no_mmproj",
+      "flag": "--no-mmproj",
+      "label": "Text-only mode (skip vision)",
+      "type": "bool",
+      "default": false,
+      "category": "performance",
+      "help": "For models that can also see images: turn this on if you only need text chat. It stops llama.cpp from loading the vision part (the 'mmproj' file), saving memory. Leave off if you want to send images to the model."
+    },
+    {
       "key": "jinja",
       "flag": "--jinja",
       "label": "Use model's chat template",

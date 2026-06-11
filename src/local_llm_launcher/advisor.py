@@ -244,6 +244,21 @@ def _advise_vllm(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, Any],
                  "Good choice for tight fits — this roughly halves conversation memory with little "
                  "quality loss.")
 
+    # Multimodal: skipping the vision/audio encoder frees GPU memory for text-only
+    # use. (Real failure: gemma-4-31B's vision tower contributed to a weight-load
+    # OOM; --language-model-only avoids loading it.)
+    text_only = bool(cfg.get("language_model_only"))
+    if model.get("multimodal") and not text_only:
+        rep.flag("language_model_only", YELLOW,
+                 "This model can also process images/audio, and loading that part uses GPU "
+                 "memory. If you only need text chat, turn on Text-only mode to skip it and "
+                 "free memory — often the difference between fitting and not.")
+    elif model.get("multimodal") and text_only:
+        rep.flag("language_model_only", GREEN,
+                 "Text-only mode on — the image/audio encoder won't be loaded, so the real "
+                 "GPU memory use will be lower than the estimate below (which assumes the full "
+                 "model). Good lever for a tight fit.")
+
     # Load-time headroom per GPU: total capacity can look fine while one card —
     # usually the one driving the monitors — lacks FREE memory for its share of
     # the weights right now. (Real failure: 31B AWQ at TP=2 OOMed on GPU 0 by
@@ -324,6 +339,15 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
                      f"(~{available_gb:.0f} GB usable). Lower this number to put some layers in RAM — "
                      f"it still runs, just slower. Try reducing until it loads.")
 
+    if model.get("multimodal") and not cfg.get("no_mmproj"):
+        rep.flag("no_mmproj", YELLOW,
+                 "This model can also process images. If you only need text chat, turn on "
+                 "Text-only mode to skip loading the vision part and save memory.")
+    elif model.get("multimodal") and cfg.get("no_mmproj"):
+        rep.flag("no_mmproj", GREEN,
+                 "Text-only mode on — the vision part won't be loaded, so real memory use "
+                 "will be a bit lower than the estimate below.")
+
     if str(cfg.get("cache_type_v", "f16")) in ("q8_0", "q4_0") and str(cfg.get("flash_attn", "auto")) == "off":
         rep.flag("cache_type_v", RED,
                  "Compressing the V cache requires flash attention to be on. Either set flash "
@@ -400,7 +424,17 @@ def advise(engine: str, model: Dict[str, Any], config: Dict[str, Any], hw: Dict[
             head += " One or more settings below need attention first."
         if rep.min_level and _RANK[rep.min_level] > _RANK[level]:
             level = rep.min_level
-        overall = {"level": level, "headline": head, "details": rep.details}
+        details = list(rep.details)
+        # When a vision model is tight or over budget and text-only isn't on yet,
+        # point to it as the first thing to try — it's the biggest lever here.
+        text_only_key = "language_model_only" if engine == "vllm" else "no_mmproj"
+        if (level in (YELLOW, RED) and model.get("multimodal")
+                and not cfg.get(text_only_key)):
+            details.insert(0,
+                "This is a vision/audio model. If you only need text, turn on Text-only "
+                "mode (below) — it skips the image/audio encoder and often frees enough "
+                "memory to fit.")
+        overall = {"level": level, "headline": head, "details": details}
 
     budget["pct"] = round(pct, 2) if pct is not None else None
     return {"overall": overall, "budget": budget, "flags": rep.flags, "engine": engine,

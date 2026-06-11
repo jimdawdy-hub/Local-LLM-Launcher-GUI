@@ -144,6 +144,15 @@
       "help": "How much text the engine chews through per internal step. Leave empty for automatic. Bigger is faster on long prompts but uses more memory."
     },
     {
+      "key": "language_model_only",
+      "flag": "--language-model-only",
+      "label": "Text-only mode (skip vision/audio)",
+      "type": "bool",
+      "default": false,
+      "category": "performance",
+      "help": "For models that can also see images or hear audio: turn this on if you only need text chat. It skips loading the image/audio parts of the model, which frees up GPU memory — often enough to make a model fit that otherwise wouldn't. Leave off if you want to send images or audio."
+    },
+    {
       "key": "trust_remote_code",
       "flag": "--trust-remote-code",
       "label": "Allow model's custom code",

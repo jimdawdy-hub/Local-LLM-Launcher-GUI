@@ -92,6 +92,53 @@ def test_guess_quant_from_filename():
     assert discovery.guess_gguf_quant("mystery.gguf") is None
 
 
+def test_is_multimodal_detects_conditional_generation():
+    assert discovery.is_multimodal_config(
+        {"architectures": ["Gemma4ForConditionalGeneration"]}
+    )
+
+
+def test_is_multimodal_detects_vision_config():
+    assert discovery.is_multimodal_config(
+        {"architectures": ["SomeForCausalLM"], "vision_config": {"hidden_size": 1024}}
+    )
+
+
+def test_is_multimodal_detects_audio_and_image_token():
+    assert discovery.is_multimodal_config({"audio_config": {}})
+    assert discovery.is_multimodal_config({"image_token_id": 256000})
+
+
+def test_is_multimodal_false_for_text_model():
+    assert not discovery.is_multimodal_config(
+        {"architectures": ["Qwen3ForCausalLM"], "num_hidden_layers": 32}
+    )
+    assert not discovery.is_multimodal_config({})
+
+
+def test_scan_marks_multimodal_model(tmp_path):
+    hub = tmp_path / "hub"
+    make_hf_model(
+        hub, "google", "gemma-4-12B",
+        {"model.safetensors": 1000},
+        config={"architectures": ["Gemma4ForConditionalGeneration"],
+                "vision_config": {"hidden_size": 1152}, "text_config": {}},
+    )
+    models = discovery.scan_hf_cache(hub)
+    assert models[0].multimodal is True
+    assert models[0].to_dict()["multimodal"] is True
+
+
+def test_scan_text_model_not_multimodal(tmp_path):
+    hub = tmp_path / "hub"
+    make_hf_model(
+        hub, "meta-llama", "Llama-3.1-8B",
+        {"model.safetensors": 1000},
+        config={"architectures": ["LlamaForCausalLM"]},
+    )
+    assert discovery.scan_hf_cache(hub)[0].multimodal is False
+
+
 def test_guess_param_count():
     assert discovery.guess_param_count_b("meta-llama/Llama-3.1-8B-Instruct") == 8.0
     assert discovery.guess_param_count_b("Qwen3.6-27B-AWQ") == 27.0

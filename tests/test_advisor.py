@@ -32,21 +32,22 @@ CPU_ONLY = {
 }
 
 
-def safetensors_model(size_gb=15.0, params=27.0, quant="awq", config=None):
+def safetensors_model(size_gb=15.0, params=27.0, quant="awq", config=None, multimodal=False):
     return {
         "repo_id": "test/model", "path": "/x", "format": "safetensors",
         "size_bytes": int(size_gb * GB), "source": "hf-cache", "quant": quant,
         "config": config or {}, "gguf_files": [], "param_count_b": params,
+        "multimodal": multimodal,
     }
 
 
-def gguf_model(size_gb=5.0, params=8.0):
+def gguf_model(size_gb=5.0, params=8.0, multimodal=False):
     return {
         "repo_id": "test/model-GGUF", "path": "/x/model-Q4_K_M.gguf", "format": "gguf",
         "size_bytes": int(size_gb * GB), "source": "folder", "quant": "Q4_K_M",
         "config": {}, "gguf_files": [{"filename": "model-Q4_K_M.gguf", "path": "/x/model-Q4_K_M.gguf",
                                        "size_bytes": int(size_gb * GB), "quant": "Q4_K_M"}],
-        "param_count_b": params,
+        "param_count_b": params, "multimodal": multimodal,
     }
 
 
@@ -263,6 +264,60 @@ def test_load_headroom_red_when_far_short():
     a = advisor.advise("vllm", safetensors_model(size_gb=23.2, params=31.0),
                        {"tensor_parallel_size": 2, "max_model_len": 4096}, hw)
     assert a["overall"]["level"] == "red"
+
+
+# ---------- multimodal / text-only ----------
+
+def test_multimodal_vllm_suggests_text_only():
+    m = safetensors_model(size_gb=8.0, params=8.0, multimodal=True)
+    a = advisor.advise("vllm", m, {"tensor_parallel_size": 2}, DUAL_5060TI)
+    assert a["flags"]["language_model_only"]["level"] == "yellow"
+    assert "Text-only" in a["flags"]["language_model_only"]["message"]
+
+
+def test_multimodal_vllm_text_only_on_is_green():
+    m = safetensors_model(size_gb=8.0, params=8.0, multimodal=True)
+    a = advisor.advise("vllm", m,
+                       {"tensor_parallel_size": 2, "language_model_only": True}, DUAL_5060TI)
+    assert a["flags"]["language_model_only"]["level"] == "green"
+
+
+def test_non_multimodal_vllm_no_text_only_flag():
+    m = safetensors_model(size_gb=8.0, params=8.0, multimodal=False)
+    a = advisor.advise("vllm", m, {"tensor_parallel_size": 2}, DUAL_5060TI)
+    assert "language_model_only" not in a["flags"]
+
+
+def test_multimodal_tight_fit_recommends_text_only_in_verdict():
+    # The real case: 31B vision model, tight on 2x16GB, text-only not yet on.
+    m = safetensors_model(size_gb=21.5, params=31.0, multimodal=True)
+    a = advisor.advise("vllm", m,
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.85,
+                        "max_model_len": 4096, "max_num_seqs": 1}, DUAL_5060TI)
+    assert a["overall"]["level"] in ("yellow", "red")
+    assert any("Text-only" in d for d in a["overall"]["details"])
+
+
+def test_multimodal_text_only_on_no_verdict_nag():
+    m = safetensors_model(size_gb=21.5, params=31.0, multimodal=True)
+    a = advisor.advise("vllm", m,
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.85,
+                        "max_model_len": 4096, "max_num_seqs": 1,
+                        "language_model_only": True}, DUAL_5060TI)
+    assert not any("turn on Text-only" in d for d in a["overall"]["details"])
+
+
+def test_multimodal_llamacpp_suggests_no_mmproj():
+    m = gguf_model(size_gb=5.0, params=8.0, multimodal=True)
+    a = advisor.advise("llamacpp", m, {"n_gpu_layers": 999, "ctx_size": 8192}, DUAL_5060TI)
+    assert a["flags"]["no_mmproj"]["level"] == "yellow"
+
+
+def test_multimodal_llamacpp_no_mmproj_on_is_green():
+    m = gguf_model(size_gb=5.0, params=8.0, multimodal=True)
+    a = advisor.advise("llamacpp", m,
+                       {"n_gpu_layers": 999, "ctx_size": 8192, "no_mmproj": True}, DUAL_5060TI)
+    assert a["flags"]["no_mmproj"]["level"] == "green"
 
 
 # ---------- presets ----------

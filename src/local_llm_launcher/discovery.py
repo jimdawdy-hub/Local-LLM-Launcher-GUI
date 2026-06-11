@@ -32,6 +32,7 @@ class LocalModel:
     config: Dict[str, Any] = field(default_factory=dict)
     gguf_files: List[Dict[str, Any]] = field(default_factory=list)
     param_count_b: Optional[float] = None
+    multimodal: bool = False  # has a vision/audio encoder (can be skipped for text-only)
 
     def to_dict(self) -> Dict[str, Any]:
         d = dict(vars(self))
@@ -42,6 +43,26 @@ class LocalModel:
 def guess_gguf_quant(filename: str) -> Optional[str]:
     m = _GGUF_QUANT_RE.search(Path(filename).stem)
     return m.group(1).upper() if m else None
+
+
+def is_multimodal_config(config: Dict[str, Any]) -> bool:
+    """Detect a vision/audio encoder from a HuggingFace config.json.
+
+    Multimodal models carry encoder weights (vision tower, etc.) that consume
+    GPU memory even when you only want text. Markers: a *ForConditionalGeneration
+    architecture (the HF convention for multimodal LMs), or a nested
+    vision_config / audio_config / image-token field.
+    """
+    archs = config.get("architectures") or []
+    if any(
+        "ConditionalGeneration" in a or "ForVision" in a or "VisionText" in a
+        for a in archs
+    ):
+        return True
+    return any(
+        key in config
+        for key in ("vision_config", "audio_config", "image_token_id", "vision_tower")
+    )
 
 
 def guess_param_count_b(name: str) -> Optional[float]:
@@ -133,6 +154,7 @@ def _scan_repo(repo_dir: Path) -> Optional[LocalModel]:
         config=config,
         gguf_files=gguf_files,
         param_count_b=guess_param_count_b(repo_id),
+        multimodal=is_multimodal_config(config),
     )
 
 

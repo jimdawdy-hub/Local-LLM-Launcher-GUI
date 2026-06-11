@@ -5,6 +5,39 @@ when the work was done.
 
 ## 2026-06-11
 
+### Added: text-only mode for multimodal (vision/audio) models
+
+**The problem:** `QuantTrio/gemma-4-31B-it-AWQ-6Bit` is a *multimodal* model
+(`Gemma4ForConditionalGeneration` — it has a vision tower and audio encoder
+alongside the language model). Launched normally, vLLM loads the entire
+multimodal stack, and the vision/audio weights plus multimodal profiling
+memory contributed to a weight-load OOM on 2×16 GB cards. For pure text chat,
+all of that is wasted VRAM.
+
+**Fix:**
+- Added **`--language-model-only`** (vLLM) and **`--no-mmproj`** (llama.cpp)
+  to the flag catalogs as a "Text-only mode (skip vision/audio)" toggle, with
+  plain-English help.
+- `discovery.py` now detects multimodal models from `config.json` (a
+  `*ForConditionalGeneration` architecture, or a `vision_config` /
+  `audio_config` / `image_token_id` field) and exposes a `multimodal` flag on
+  each model.
+- `advisor.py` now, for a detected multimodal model: yellow-flags the
+  text-only toggle as a suggestion when it's off (green confirmation when on),
+  and — when the fit is tight or over budget — puts "this is a vision/audio
+  model; turn on Text-only mode" as the *first* remedy in the overall verdict.
+  When text-only is on, the advisor notes the real memory use will be below
+  the estimate (which conservatively assumes the full model).
+- The model-fit badges on the Models tab now reflect this too.
+
+Verified on real hardware: the 31B model previously OOM'd **during weight
+load** (building the LM head) on 2×16 GB cards. Relaunched with text-only mode
+on (vLLM args confirmed `language_model_only: True`), its full weights loaded
+in 11.63 GiB per worker and it sailed past that exact failure point with ~1.5
+GB of headroom to spare on GPU 0, proceeding into vLLM's compile/graph-capture
+startup. Skipping the vision/audio stack was the difference between OOM and a
+clean weight load.
+
 ### Fixed: per-GPU memory load-headroom check ("display tax")
 
 **The problem:** A 31B AWQ model (`QuantTrio/gemma-4-31B-it-AWQ-6Bit`, 23.2 GB)
