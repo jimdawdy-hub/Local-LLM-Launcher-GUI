@@ -144,16 +144,19 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
     }).catch(() => setPresets([]))
   }, [model, engineMode])
 
-  // Debounced live advice as the config changes.
+  // Debounced live advice as the config changes, then re-checked every 8s so
+  // the free-GPU-memory numbers track what your desktop is actually using.
   useEffect(() => {
     if (!model || !engineMode) return
-    clearTimeout(debounce.current)
-    debounce.current = setTimeout(() => {
+    const fetchAdvice = () => {
       api.advise(adviceEngine(engineMode), model.repo_id, config)
         .then(setAdvice)
         .catch(() => setAdvice(null))
-    }, 250)
-    return () => clearTimeout(debounce.current)
+    }
+    clearTimeout(debounce.current)
+    debounce.current = setTimeout(fetchAdvice, 250)
+    const t = setInterval(fetchAdvice, 8000)
+    return () => { clearTimeout(debounce.current); clearInterval(t) }
   }, [model, engineMode, config])
 
   const setFlag = useCallback((key, value) => {

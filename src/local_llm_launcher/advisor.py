@@ -254,14 +254,16 @@ def _advise_vllm(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, Any],
         worst_free_gb = worst["vram_free_mb"] / 1024
         if per_gpu_load_gb > worst_free_gb:
             shortfall = per_gpu_load_gb - worst_free_gb
-            in_use = (worst["vram_total_mb"] - worst["vram_free_mb"]) / 1024
+            held = (worst["vram_total_mb"] - worst["vram_free_mb"]) / 1024
             rep.escalate(
                 RED if shortfall > 1.5 else YELLOW,
                 f"Loading needs ~{per_gpu_load_gb:.1f} GB free on each card, but GPU "
-                f"{worst['index']} only has {worst_free_gb:.1f} GB free right now — other "
-                f"programs (usually your desktop and browser on the GPU driving your "
-                f"monitors) are using {in_use:.1f} GB of it. Close GPU-heavy apps and "
-                f"this should fit; you're about {shortfall:.1f} GB short.",
+                f"{worst['index']} has {worst_free_gb:.1f} GB free right now (numbers "
+                f"re-checked every few seconds via nvidia-smi). Other programs and the "
+                f"graphics driver are holding {held:.1f} GB — on the card driving your "
+                f"monitors, the desktop and browser are usually the biggest pieces. "
+                f"Close GPU-heavy apps and this should fit; you're about "
+                f"{shortfall:.1f} GB short.",
             )
 
     available_gb = capacity_gb

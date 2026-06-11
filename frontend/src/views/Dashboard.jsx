@@ -7,7 +7,7 @@ function GpuBar({ gpu }) {
     <div className="gpubar">
       <div className="row between small">
         <span>GPU {gpu.index} — {gpu.name}</span>
-        <span className="mono muted">{(usedMb / 1024).toFixed(1)} / {(gpu.vram_total_mb / 1024).toFixed(0)} GB used</span>
+        <span className="mono muted">{(usedMb / 1024).toFixed(1)} / {(gpu.vram_total_mb / 1024).toFixed(0)} GB held (apps + driver)</span>
       </div>
       <div className="track"><div className="fill" style={{ width: `${pct}%` }} /></div>
     </div>
