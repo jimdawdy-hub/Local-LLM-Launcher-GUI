@@ -89,6 +89,9 @@ export function FitVerdict({ overall }) {
       <div>
         <span className="mono" style={{ fontWeight: 700, letterSpacing: '0.1em' }}>{word}</span>
         <p className="small muted" style={{ marginTop: 3 }}>{overall.headline}</p>
+        {(overall.details ?? []).map((d, i) => (
+          <p key={i} className="small" style={{ marginTop: 5, color: 'var(--caution)' }}>{d}</p>
+        ))}
       </div>
     </div>
   )

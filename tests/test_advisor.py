@@ -221,6 +221,50 @@ def test_llamacpp_cpu_only_big_model_red():
     assert a["overall"]["level"] == "red"
 
 
+# ---------- per-GPU load headroom (the "display tax") ----------
+
+def busy_gpu0_hw(free0_mb):
+    """Dual 16GB cards where the desktop occupies part of GPU 0."""
+    hw = dict(DUAL_5060TI)
+    hw["gpus"] = [
+        {"name": "RTX 5060 Ti", "vram_total_mb": 15866, "vram_free_mb": free0_mb,
+         "compute_capability": "12.0", "index": 0},
+        {"name": "RTX 5060 Ti", "vram_total_mb": 15888, "vram_free_mb": 15737,
+         "compute_capability": "12.0", "index": 1},
+    ]
+    return hw
+
+
+def test_load_headroom_warns_when_display_gpu_is_busy():
+    # Real failure: 23 GiB AWQ model at TP=2 needs ~14.6 GB free per card;
+    # GPU 0 had only ~13.5 GB free (desktop using ~2 GB) and OOMed by ~400 MB.
+    hw = busy_gpu0_hw(free0_mb=13824)  # 13.5 GiB free
+    a = advisor.advise("vllm", safetensors_model(size_gb=23.2, params=31.0),
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.86,
+                        "max_model_len": 4096, "max_num_seqs": 1,
+                        "kv_cache_dtype": "fp8"}, hw)
+    assert a["overall"]["level"] in ("yellow", "red")
+    details = " ".join(a["overall"]["details"])
+    assert "GPU 0" in details
+    assert "Close GPU-heavy apps" in details
+
+
+def test_load_headroom_quiet_when_gpu_is_free():
+    hw = busy_gpu0_hw(free0_mb=15400)  # desktop closed, ~15 GiB free
+    a = advisor.advise("vllm", safetensors_model(size_gb=23.2, params=31.0),
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.86,
+                        "max_model_len": 4096, "max_num_seqs": 1,
+                        "kv_cache_dtype": "fp8"}, hw)
+    assert not any("Close GPU-heavy apps" in d for d in a["overall"]["details"])
+
+
+def test_load_headroom_red_when_far_short():
+    hw = busy_gpu0_hw(free0_mb=10240)  # 10 GiB free — hopeless
+    a = advisor.advise("vllm", safetensors_model(size_gb=23.2, params=31.0),
+                       {"tensor_parallel_size": 2, "max_model_len": 4096}, hw)
+    assert a["overall"]["level"] == "red"
+
+
 # ---------- presets ----------
 
 def test_presets_exist_and_are_advised():

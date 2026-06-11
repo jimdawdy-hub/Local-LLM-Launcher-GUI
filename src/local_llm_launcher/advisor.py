@@ -20,6 +20,8 @@ MB = 1024**2
 
 # Memory vLLM/torch needs per GPU outside its managed pool (CUDA context, NCCL).
 CUDA_OVERHEAD_GB = 1.7
+# Temporary allocation headroom needed per GPU while weights stream in.
+LOAD_BUFFER_GB = 1.3
 # Working buffer inside the pool for activations/compile scratch.
 WORKING_BUFFER_GB = 1.0
 # Fraction of Apple unified memory it is sensible to give the model.
@@ -89,6 +91,12 @@ class _Report:
         self.flags: Dict[str, Dict[str, Optional[str]]] = {}
         self.blockers: List[str] = []
         self.details: List[str] = []
+        self.min_level: Optional[str] = None  # floor for the overall verdict
+
+    def escalate(self, level: str, detail: str) -> None:
+        self.details.append(detail)
+        if self.min_level is None or _RANK[level] > _RANK[self.min_level]:
+            self.min_level = level
 
     def flag(self, key: str, level: str, message: Optional[str] = None) -> None:
         existing = self.flags.get(key)
@@ -236,6 +244,26 @@ def _advise_vllm(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, Any],
                  "Good choice for tight fits — this roughly halves conversation memory with little "
                  "quality loss.")
 
+    # Load-time headroom per GPU: total capacity can look fine while one card —
+    # usually the one driving the monitors — lacks FREE memory for its share of
+    # the weights right now. (Real failure: 31B AWQ at TP=2 OOMed on GPU 0 by
+    # ~400 MB because the desktop held ~2 GB there.)
+    if used_gpus and not rep.blockers:
+        per_gpu_load_gb = weights_gb / max(tp, 1) + CUDA_OVERHEAD_GB + LOAD_BUFFER_GB
+        worst = min(used_gpus, key=lambda g: g["vram_free_mb"])
+        worst_free_gb = worst["vram_free_mb"] / 1024
+        if per_gpu_load_gb > worst_free_gb:
+            shortfall = per_gpu_load_gb - worst_free_gb
+            in_use = (worst["vram_total_mb"] - worst["vram_free_mb"]) / 1024
+            rep.escalate(
+                RED if shortfall > 1.5 else YELLOW,
+                f"Loading needs ~{per_gpu_load_gb:.1f} GB free on each card, but GPU "
+                f"{worst['index']} only has {worst_free_gb:.1f} GB free right now — other "
+                f"programs (usually your desktop and browser on the GPU driving your "
+                f"monitors) are using {in_use:.1f} GB of it. Close GPU-heavy apps and "
+                f"this should fit; you're about {shortfall:.1f} GB short.",
+            )
+
     available_gb = capacity_gb
     return {
         "weights_gb": round(weights_gb, 1),
@@ -368,6 +396,8 @@ def advise(engine: str, model: Dict[str, Any], config: Dict[str, Any], hw: Dict[
         if red_flags and level != RED:
             level = YELLOW
             head += " One or more settings below need attention first."
+        if rep.min_level and _RANK[rep.min_level] > _RANK[level]:
+            level = rep.min_level
         overall = {"level": level, "headline": head, "details": rep.details}
 
     budget["pct"] = round(pct, 2) if pct is not None else None
