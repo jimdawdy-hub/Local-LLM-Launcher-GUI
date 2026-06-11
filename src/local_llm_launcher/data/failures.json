@@ -1,0 +1,57 @@
+{
+  "description": "Log patterns mapped to plain-English explanations. First match wins.",
+  "patterns": [
+    {
+      "match": "is less than desired GPU memory utilization",
+      "message": "The launch failed a memory pre-check: other programs (often your desktop and browser) are using part of the GPU, so vLLM couldn't claim the fraction you asked for. Lower the 'GPU memory usage limit' slider a couple of notches, or close GPU-heavy apps and try again."
+    },
+    {
+      "match": "larger than available KV cache memory",
+      "message": "The model's weights loaded, but there wasn't enough GPU memory left for conversation memory (KV cache). Lower the context window size, set conversation memory compression to fp8, or raise the GPU memory usage limit slightly."
+    },
+    {
+      "match": "Quantization method specified in the model config",
+      "message": "The quantization (compression format) you set doesn't match what the model files actually use — model names often lie about this. Clear the 'Quantization override' setting and let vLLM detect it automatically."
+    },
+    {
+      "match": "CUDA out of memory",
+      "message": "The GPU ran out of memory. Try: a smaller or more compressed (quantized) model, a shorter context window, compressed conversation memory (fp8), or splitting across more GPUs."
+    },
+    {
+      "match": "torch.OutOfMemoryError",
+      "message": "The GPU ran out of memory. Try: a smaller or more compressed (quantized) model, a shorter context window, compressed conversation memory (fp8), or splitting across more GPUs."
+    },
+    {
+      "match": "unknown model architecture",
+      "message": "This engine doesn't recognize this model's architecture (its internal design). It's usually too new for the engine version installed — update the engine, or try the other engine."
+    },
+    {
+      "match": "lm_head.input_scale",
+      "message": "This particular compressed build quantizes a part of the model (the lm_head) that vLLM can't handle for this architecture. Try a different quantized build of the same model (AWQ or compressed-tensors versions usually work)."
+    },
+    {
+      "match": "trust_remote_code",
+      "message": "This model ships its own custom code and vLLM refused to run it without permission. If you trust the model's publisher, enable 'Allow model's custom code' and launch again."
+    },
+    {
+      "match": "gated repo",
+      "message": "This model is gated: you must visit its page on huggingface.co, accept the license, and add a Hugging Face access token in this app's settings."
+    },
+    {
+      "match": "401 Client Error",
+      "message": "Hugging Face rejected the download — the model may be gated (license acceptance + access token required) or the token is wrong."
+    },
+    {
+      "match": "Address already in use",
+      "message": "Another program is already using this port. Pick a different port number and launch again."
+    },
+    {
+      "match": "error while loading shared libraries",
+      "message": "The engine binary is missing a system library it depends on. The engine install is likely broken — reinstall it."
+    },
+    {
+      "match": "No such file or directory",
+      "message": "A file or program the launch needed wasn't found. If this mentions the engine itself, it isn't installed where the app expected."
+    }
+  ]
+}
