@@ -107,16 +107,24 @@ def api_put_settings(body: SettingsUpdate):
 def api_models():
     hw = get_hardware()
     out = []
+    rank = {"green": 0, "yellow": 1, "red": 2}
     for m in installed_models():
         engine = recommended_engine(m, hw)
         adv_engine = "llamacpp" if engine == "llamacpp" else "vllm"
-        preset = advisor.presets(adv_engine, m, hw)[0]
-        advice = advisor.advise(adv_engine, m, preset["config"], hw)
+        # The badge answers "can this run on my hardware at all?" — so report the
+        # best outcome across presets, not just the conservative default.
+        best = None
+        for preset in advisor.presets(adv_engine, m, hw):
+            advice = advisor.advise(adv_engine, m, preset["config"], hw)
+            if best is None or rank[advice["overall"]["level"]] < rank[best["overall"]["level"]]:
+                best = advice
+            if best["overall"]["level"] == "green":
+                break
         out.append({
             **m,
             "recommended_engine": engine,
-            "fit": advice["overall"]["level"],
-            "fit_headline": advice["overall"]["headline"],
+            "fit": best["overall"]["level"],
+            "fit_headline": best["overall"]["headline"],
         })
     return {"models": out}
 

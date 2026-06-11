@@ -144,8 +144,10 @@ def _advise_vllm(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, Any],
     used_gpus = gpus[: max(tp, 1)] if gpus else []
     capacity_gb = sum(g["vram_total_mb"] for g in used_gpus) / 1024 * util
     kv_dtype_bytes = 1.0 if cfg.get("kv_cache_dtype") == "fp8" else 2.0
+    # vLLM's KV pool is shared across requests, not pre-reserved per request —
+    # cap the multiplier at 2 so "needed" reflects a sane working minimum.
     kv_gb = estimate_kv_gb(model.get("config") or {}, model.get("param_count_b"),
-                           max_len, seqs=min(seqs, 4), dtype_bytes=kv_dtype_bytes)
+                           max_len, seqs=min(seqs, 2), dtype_bytes=kv_dtype_bytes)
     needed_gb = weights_gb + kv_gb + WORKING_BUFFER_GB
 
     if gpus and tp < len(gpus) and needed_gb > capacity_gb:

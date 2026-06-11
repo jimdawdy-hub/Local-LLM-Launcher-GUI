@@ -190,6 +190,8 @@ _LLAMA_LOCATIONS = [
     "/opt/homebrew/bin/llama-server",
     os.path.expanduser("~/llama.cpp/build/bin/llama-server"),
     os.path.expanduser("~/.local/bin/llama-server"),
+    os.path.expanduser("~/.local/opt/llama.cpp/llama-server"),
+    os.path.expanduser("~/.local/opt/llama.cpp/bin/llama-server"),
 ]
 
 
