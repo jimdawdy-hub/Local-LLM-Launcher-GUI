@@ -33,10 +33,44 @@ all of that is wasted VRAM.
 Verified on real hardware: the 31B model previously OOM'd **during weight
 load** (building the LM head) on 2×16 GB cards. Relaunched with text-only mode
 on (vLLM args confirmed `language_model_only: True`), its full weights loaded
-in 11.63 GiB per worker and it sailed past that exact failure point with ~1.5
-GB of headroom to spare on GPU 0, proceeding into vLLM's compile/graph-capture
-startup. Skipping the vision/audio stack was the difference between OOM and a
-clean weight load.
+in 11.63 GiB per worker and it sailed past that exact failure point — proving
+the feature works. It then hit a *second, different* memory gate (KV cache),
+which led directly to the next fix below.
+
+### Added: KV-cache gate prediction (the "loads then refuses to start" failure)
+
+**The problem (found while verifying text-only mode above):** vLLM checks
+memory in two sequential gates — first it loads the weights, then it reserves
+the KV cache (the GPU memory that holds the running conversation). The 31B
+model cleared the weight gate but failed the KV gate:
+
+```
+ValueError: ... 0.75 GiB KV cache is needed, which is larger than the
+available KV cache memory (0.09 GiB). ... estimated maximum model length is 384.
+```
+
+After the weights (~11.6 GB/card) and vLLM's activation/compile working set
+(~1.8 GB/card) filled the 0.85-utilization pool on a 16 GB card, only ~0.09 GB
+was left for KV cache — far short of what a 4096-token context needs. The model
+loaded and *then* refused to start. The advisor hadn't predicted this: its
+memory math was aggregate (total VRAM across both cards) and used a flat 1 GB
+working buffer, so it rated the config "tight but should load."
+
+**Fix:** `advisor.py` now models this gate explicitly and per-GPU. After
+weights and a calibrated per-GPU working set (`VLLM_WORKING_SET_PER_GPU_GB`,
+set to 1.8 GB from the observed load), it checks whether the requested
+context's KV cache still fits in each card's pool. When it doesn't, the verdict
+explains it in plain English and gives ordered remedies — lower the context to
+a computed value that *would* fit, raise `gpu_memory_utilization` (only if the
+card has free room), and/or enable fp8 KV compression. The post-launch failure
+translator was also corrected (its pattern missed the word "the" in vLLM's
+actual message) and now fires for this error.
+
+**Net result:** for this genuinely tight 31B model on 2×16 GB with a desktop
+running, the app now tells you *before* a ~15-minute load attempt that it will
+clear the weight gate but stall at the KV gate, and what to change (free the
+display GPU per the original vllm-cli tip, drop to a smaller model, or shorten
+the context) — instead of letting you discover it the hard way.
 
 ### Fixed: per-GPU memory load-headroom check ("display tax")
 

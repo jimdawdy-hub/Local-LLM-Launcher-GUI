@@ -24,6 +24,11 @@ CUDA_OVERHEAD_GB = 1.7
 LOAD_BUFFER_GB = 1.3
 # Working buffer inside the pool for activations/compile scratch.
 WORKING_BUFFER_GB = 1.0
+# Per-GPU activation/compile working set that sits inside vLLM's managed pool
+# alongside the weights, before any KV cache. Calibrated against an observed
+# load: a 16 GB card at util 0.85 (pool ~13.5 GB) loaded 11.63 GB of weights and
+# had only ~0.09 GB left for KV — implying ~1.8 GB of working set.
+VLLM_WORKING_SET_PER_GPU_GB = 1.8
 # Fraction of Apple unified memory it is sensible to give the model.
 APPLE_USABLE_FRACTION = 0.75
 # Fraction of system RAM usable for CPU-only inference.
@@ -279,6 +284,43 @@ def _advise_vllm(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, Any],
                 f"monitors, the desktop and browser are usually the biggest pieces. "
                 f"Close GPU-heavy apps and this should fit; you're about "
                 f"{shortfall:.1f} GB short.",
+            )
+
+    # KV-cache gate: even when weights fit, the context window's conversation
+    # memory (KV cache) must fit in what's left of the per-GPU pool after weights
+    # and the activation/compile working set. This is the SECOND gate vLLM checks
+    # ("KV cache needed ... larger than the available KV cache memory") and a very
+    # common reason a model loads its weights but then refuses to start.
+    if used_gpus and not rep.blockers:
+        pool_per_gpu = sum(g["vram_total_mb"] for g in used_gpus) / 1024 / len(used_gpus) * util
+        weights_per_gpu = weights_gb / max(tp, 1)
+        kv_headroom_per_gpu = pool_per_gpu - weights_per_gpu - VLLM_WORKING_SET_PER_GPU_GB
+        kv_needed_per_gpu = kv_gb / max(tp, 1)
+        if kv_needed_per_gpu > kv_headroom_per_gpu:
+            # How much context WOULD fit at this util, rounded down to 512.
+            if kv_needed_per_gpu > 0:
+                fit_ratio = max(kv_headroom_per_gpu, 0) / kv_needed_per_gpu
+                fit_len = int(max_len * fit_ratio) // 512 * 512
+            else:
+                fit_len = 0
+            # Could a higher utilization rescue it? (Only if the card has free room.)
+            headroom_for_util = (min(g["vram_free_mb"] for g in used_gpus) / 1024) / \
+                (sum(g["vram_total_mb"] for g in used_gpus) / 1024 / len(used_gpus))
+            can_raise_util = headroom_for_util > util + 0.02
+            tips = []
+            if fit_len >= 512:
+                tips.append(f"lower the context window to about {fit_len:,}")
+            if can_raise_util:
+                tips.append(f"raise the GPU memory usage limit toward {min(headroom_for_util - 0.02, 0.95):.2f}")
+            if cfg.get("kv_cache_dtype") != "fp8":
+                tips.append("set conversation memory compression to fp8")
+            tip_text = "; ".join(tips) if tips else "use a smaller model or free GPU memory"
+            rep.escalate(
+                YELLOW,
+                f"The weights fit, but at a {max_len:,}-token context there's only about "
+                f"{max(kv_headroom_per_gpu, 0):.1f} GB left per card for conversation memory "
+                f"(KV cache) and ~{kv_needed_per_gpu:.1f} GB is needed — so the server would "
+                f"load the model and then refuse to start. To fix: {tip_text}.",
             )
 
     available_gb = capacity_gb

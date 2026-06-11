@@ -6,8 +6,8 @@
       "message": "The launch failed a memory pre-check: other programs (often your desktop and browser) are using part of the GPU, so vLLM couldn't claim the fraction you asked for. Lower the 'GPU memory usage limit' slider a couple of notches, or close GPU-heavy apps and try again."
     },
     {
-      "match": "larger than available KV cache memory",
-      "message": "The model's weights loaded, but there wasn't enough GPU memory left for conversation memory (KV cache). Lower the context window size, set conversation memory compression to fp8, or raise the GPU memory usage limit slightly."
+      "match": "available KV cache memory",
+      "message": "The model's weights loaded fine, but there wasn't enough GPU memory left for conversation memory (the KV cache). This is the second memory hurdle after weights. Fixes, in order: lower the context window size (e.g. to 2048), raise the GPU memory usage limit a little (e.g. 0.85 to 0.90) so the engine claims more of the card, set conversation memory compression to fp8, and/or free GPU memory by closing other apps. The log's 'estimated maximum model length' tells you how far you currently are from fitting."
     },
     {
       "match": "Quantization method specified in the model config",

@@ -320,6 +320,41 @@ def test_multimodal_llamacpp_no_mmproj_on_is_green():
     assert a["flags"]["no_mmproj"]["level"] == "green"
 
 
+# ---------- KV-cache gate (weights fit but conversation memory starves) ----------
+
+def test_kv_gate_flags_weights_fit_but_no_kv_room():
+    # The real failure: 31B weights load (11.6 GB/card on 2x16GB at util 0.85),
+    # leaving almost nothing for KV cache at a 4096 context.
+    m = safetensors_model(size_gb=23.2, params=31.0)
+    a = advisor.advise("vllm", m,
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.85,
+                        "max_model_len": 4096, "max_num_seqs": 1,
+                        "kv_cache_dtype": "fp8"}, DUAL_5060TI)
+    joined = " ".join(a["overall"]["details"])
+    assert "conversation memory" in joined or "KV cache" in joined
+    assert a["overall"]["level"] in ("yellow", "red")
+
+
+def test_kv_gate_quiet_when_plenty_of_room():
+    # Small model leaves loads of room for KV — no KV-gate warning.
+    m = safetensors_model(size_gb=8.0, params=8.0)
+    a = advisor.advise("vllm", m,
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.85,
+                        "max_model_len": 4096, "max_num_seqs": 1}, DUAL_5060TI)
+    assert not any("conversation memory (KV cache) and" in d for d in a["overall"]["details"])
+
+
+def test_kv_gate_suggests_lower_context():
+    m = safetensors_model(size_gb=23.2, params=31.0)
+    a = advisor.advise("vllm", m,
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.85,
+                        "max_model_len": 8192, "max_num_seqs": 1,
+                        "kv_cache_dtype": "fp8"}, DUAL_5060TI)
+    joined = " ".join(a["overall"]["details"])
+    # Should mention a remedy: lower context, raise util, or fp8.
+    assert any(w in joined for w in ("context window", "memory usage limit", "fp8"))
+
+
 # ---------- presets ----------
 
 def test_presets_exist_and_are_advised():
