@@ -86,7 +86,12 @@ To stop the app, go back to the terminal window and press `Ctrl+C`.
 ## Using it — the short version
 
 1. **Dashboard** — confirms the app can see your hardware (GPU, memory) and
-   which engines (vLLM / llama.cpp) it found.
+   which engines (vLLM / llama.cpp) it found. There's also a one-click
+   launcher for **[Open WebUI](https://github.com/open-webui/open-webui)** — a
+   polished chat interface — right under "Running now." If it's not installed,
+   the button is greyed out with the install command ready to copy; if it is,
+   clicking it starts Open WebUI, connects it to whatever models you have
+   running, and opens it in your browser automatically.
 2. **Models** — search for a model on HuggingFace (the most popular library of
    AI models) and download it, or see what you've already got. Each model
    shows whether it'll **Fit**, be **Tight**, or **Won't fit** on your
@@ -94,8 +99,9 @@ To stop the app, go back to the terminal window and press `Ctrl+C`.
    ![Models screenshot](docs/images/models.png)
 3. **Launch** — pick a model, pick a preset (or leave it on *Safe*), and read
    the big green/yellow/red verdict at the top. Every setting below it has a
-   plain-English explanation and its own status light. When it's green, hit
-   **Launch**.
+   plain-English explanation and its own status light. For models that can
+   also see images or hear audio, a **Text-only mode** toggle skips loading
+   that part to free up memory for chat. When it's green, hit **Launch**.
    ![Launch screenshot](docs/images/launch.png)
 4. **Servers** — see your running model, copy its address to use in other
    apps, watch its logs, or try it right there with the built-in test chat.
@@ -119,6 +125,15 @@ your hardware actually has free **right now**:
 
 These numbers update live, because how much memory is "free" changes as you
 open and close other programs.
+
+Behind the scenes, vLLM checks memory in **two separate steps** when starting
+up: first it loads the model's weights, then it reserves room for the
+conversation (the "KV cache"). A model can pass the first check and still fail
+the second — loading successfully and then refusing to start. The app checks
+*both* steps before you launch, so a "should load but then fail at the last
+second" scenario shows up as a yellow warning with a fix (shorter context,
+more memory headroom, or compression) instead of a 10-15 minute wait followed
+by a cryptic error.
 
 ## Learn more
 
