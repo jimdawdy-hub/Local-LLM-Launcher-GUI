@@ -42,6 +42,10 @@
       "message": "Hugging Face rejected the download — the model may be gated (license acceptance + access token required) or the token is wrong."
     },
     {
+      "match": "reasoning parser could not locate",
+      "message": "The 'Thinking-model format' you picked doesn't match this model's family — the parser couldn't find this model's thinking markers. Pick the format matching the family (gemma4 for Gemma models, qwen3 for Qwen, deepseek_r1 for DeepSeek-R1) or leave it empty."
+    },
+    {
       "match": "unrecognized arguments",
       "message": "Your installed engine version doesn't know one of the settings that was sent (engines add and remove options between versions). The log's last lines name the offending option — clear that setting (or remove it from 'Extra raw flags') and launch again."
     },

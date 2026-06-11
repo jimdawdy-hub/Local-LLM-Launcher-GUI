@@ -155,6 +155,35 @@ def test_reasoning_parser_hint_for_qwen3():
     assert a["flags"]["reasoning_parser"]["level"] == "yellow"
 
 
+def test_reasoning_parser_family_mismatch_red():
+    # Real-world failure: gemma-4 model launched with the qwen3 parser aborts
+    # instantly ("could not locate think start/end tokens").
+    m = safetensors_model(size_gb=23.0, params=31.0)
+    m["repo_id"] = "QuantTrio/gemma-4-31B-it-AWQ-6Bit"
+    a = advisor.advise("vllm", m, {"tensor_parallel_size": 2, "reasoning_parser": "qwen3"},
+                       DUAL_5060TI)
+    assert a["flags"]["reasoning_parser"]["level"] == "red"
+    assert "gemma4" in a["flags"]["reasoning_parser"]["message"]
+    # A red flag must also gate the overall verdict.
+    assert a["overall"]["level"] in ("yellow", "red")
+
+
+def test_reasoning_parser_matching_family_ok():
+    m = safetensors_model(size_gb=23.0, params=31.0)
+    m["repo_id"] = "QuantTrio/gemma-4-31B-it-AWQ-6Bit"
+    a = advisor.advise("vllm", m, {"tensor_parallel_size": 2, "reasoning_parser": "gemma4"},
+                       DUAL_5060TI)
+    assert a["flags"].get("reasoning_parser") is None
+
+
+def test_reasoning_parser_unknown_family_yellow():
+    m = safetensors_model(size_gb=8.0, params=8.0)
+    m["repo_id"] = "mistralai/Mistral-7B-Instruct"
+    a = advisor.advise("vllm", m, {"tensor_parallel_size": 2, "reasoning_parser": "qwen3"},
+                       DUAL_5060TI)
+    assert a["flags"]["reasoning_parser"]["level"] == "yellow"
+
+
 # ---------- llama.cpp flag rules ----------
 
 def test_llamacpp_green_fit():

@@ -201,15 +201,29 @@ def _advise_vllm(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, Any],
                  f"This model was trained for a maximum of {int(max_pos):,} tokens of context. "
                  f"Asking for more usually fails at startup or degrades answers.")
 
-    # reasoning parser hint
-    if not cfg.get("reasoning_parser"):
-        for pattern, parser in _REASONING_FAMILIES:
-            if pattern.search(model.get("repo_id", "")):
-                rep.flag("reasoning_parser", YELLOW,
-                         f"This looks like a '{parser}' family model that thinks step-by-step before "
-                         f"answering. Set the thinking-model format to '{parser}' so apps get clean "
-                         f"answers instead of raw thinking text.")
-                break
+    # reasoning parser: suggest when empty, and hard-stop a family mismatch —
+    # a wrong parser aborts the launch instantly ("could not locate think
+    # start/end tokens in the tokenizer").
+    detected = None
+    for pattern, parser in _REASONING_FAMILIES:
+        if pattern.search(model.get("repo_id", "")):
+            detected = parser
+            break
+    chosen = cfg.get("reasoning_parser")
+    if chosen and detected and chosen != detected:
+        rep.flag("reasoning_parser", RED,
+                 f"'{chosen}' is the wrong format for this model — it looks like a '{detected}' "
+                 f"family model, and a mismatched parser makes the launch fail instantly. "
+                 f"Pick '{detected}' (or leave this empty).")
+    elif chosen and not detected:
+        rep.flag("reasoning_parser", YELLOW,
+                 f"Couldn't confirm this model uses the '{chosen}' thinking format. If the launch "
+                 f"fails immediately, clear this setting.")
+    elif detected and not chosen:
+        rep.flag("reasoning_parser", YELLOW,
+                 f"This looks like a '{detected}' family model that thinks step-by-step before "
+                 f"answering. Set the thinking-model format to '{detected}' so apps get clean "
+                 f"answers instead of raw thinking text.")
 
     # many simultaneous requests on consumer hardware
     if seqs > 32 and gpus and all(g["vram_total_mb"] <= 24 * 1024 for g in gpus):
