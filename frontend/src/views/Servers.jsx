@@ -19,7 +19,7 @@ function LogViewer({ serverId }) {
     let alive = true
     const poll = async () => {
       try {
-        const r = await api.serverLogs(serverId, 300)
+        const r = await api.serverLogs(serverId, 1000)
         if (alive) setLines(r?.lines ?? [])
       } catch { /* server may be gone */ }
     }
@@ -182,7 +182,12 @@ function ServerCard({ server, refresh, notify }) {
         )}
       </div>
 
-      {openLogs && <LogViewer serverId={server.id} />}
+      {openLogs && (
+        <>
+          <LogViewer serverId={server.id} />
+          <p className="small faint mono">Full log file: {server.log_path}</p>
+        </>
+      )}
       {openChat && server.running && <ChatTest server={server} notify={notify} />}
     </div>
   )

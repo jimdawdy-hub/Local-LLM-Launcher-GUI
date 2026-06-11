@@ -10,18 +10,20 @@ from .. import catalog
 def build_args_and_env(engine: str, config: Dict[str, Any]) -> Tuple[List[str], Dict[str, str], List[str]]:
     """Returns (argv_flags, env, extra_args) for the given engine config.
 
+    Only flags explicitly present in `config` are emitted — catalog defaults are
+    for display and advice, not for the command line. Sending every default makes
+    commands brittle across engine versions (e.g. vLLM removed --swap-space).
+
     Flags with `"flag": null` in the catalog are routed to environment variables
     (when `env_var` is set) or returned as parsed extra args (`extra_args`).
     """
     spec_by_key = {f["key"]: f for f in catalog.load_catalog(engine)["flags"]}
-    merged = catalog.defaults(engine)
-    merged.update({k: v for k, v in config.items() if v is not None})
 
     argv: List[str] = []
     env: Dict[str, str] = {}
     extra: List[str] = []
 
-    for key, value in merged.items():
+    for key, value in config.items():
         spec = spec_by_key.get(key)
         if spec is None or value is None:
             continue

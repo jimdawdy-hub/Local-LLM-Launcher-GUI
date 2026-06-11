@@ -185,10 +185,14 @@ def _vllm_docker_available() -> bool:
         return False
 
 
+# Source builds (usually CUDA/Metal-optimized) take priority over generic
+# prebuilt binaries, which are often CPU-only.
 _LLAMA_LOCATIONS = [
+    os.path.expanduser("~/Projects/llama.cpp/build-cuda/bin/llama-server"),
+    os.path.expanduser("~/Projects/llama.cpp/build/bin/llama-server"),
+    os.path.expanduser("~/llama.cpp/build/bin/llama-server"),
     "/usr/local/bin/llama-server",
     "/opt/homebrew/bin/llama-server",
-    os.path.expanduser("~/llama.cpp/build/bin/llama-server"),
     os.path.expanduser("~/.local/bin/llama-server"),
     os.path.expanduser("~/.local/opt/llama.cpp/llama-server"),
     os.path.expanduser("~/.local/opt/llama.cpp/bin/llama-server"),

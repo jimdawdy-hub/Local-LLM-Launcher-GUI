@@ -35,6 +35,26 @@ def test_vllm_native_basic_command():
     assert spec["port"] == 8002
 
 
+def test_only_explicit_config_is_emitted():
+    """Regression: catalog defaults must NOT leak into the command line.
+
+    vLLM removed --swap-space; emitting unset defaults breaks launches whenever
+    an engine changes its options between versions.
+    """
+    spec = vllm_native.build(MODEL, {"port": 8002})
+    argv = spec["argv"]
+    assert "--swap-space" not in argv
+    assert "--dtype" not in argv
+    assert "--gpu-memory-utilization" not in argv
+    assert "--enable-prefix-caching" not in argv
+
+    spec = llamacpp.build(GGUF, {"port": 8080}, binary="llama-server")
+    argv = spec["argv"]
+    assert "--batch-size" not in argv
+    assert "--n-gpu-layers" not in argv  # leave it to llama.cpp's auto-fit
+    assert "--split-mode" not in argv
+
+
 def test_vllm_native_env_handling():
     spec = vllm_native.build(MODEL, {"device_ids": "0,1", "hf_token": "hf_secret"})
     assert spec["env"]["CUDA_VISIBLE_DEVICES"] == "0,1"

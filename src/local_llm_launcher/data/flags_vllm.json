@@ -114,18 +114,6 @@
       "help": "Turns off a speed optimization (CUDA graphs) to save a little GPU memory during startup. Generation gets noticeably slower. Only use when a model fails to start at the very last step."
     },
     {
-      "key": "swap_space",
-      "flag": "--swap-space",
-      "label": "Overflow space (GB)",
-      "type": "int",
-      "default": 4,
-      "min": 0,
-      "max": 32,
-      "category": "advanced",
-      "advanced": true,
-      "help": "RAM set aside for paused conversations when many people use the server at once. With one user this barely matters — leave the default."
-    },
-    {
       "key": "enable_prefix_caching",
       "flag": "--enable-prefix-caching",
       "label": "Reuse repeated prompts",

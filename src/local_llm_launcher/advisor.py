@@ -415,9 +415,10 @@ def presets(engine: str, model: Dict[str, Any], hw: Dict[str, Any]) -> List[Dict
                                "actually free right now and minimizes everything else."})
     else:
         out.append({"name": "Safe (recommended)", "config": {
-            "n_gpu_layers": 999, "ctx_size": 8192, "flash_attn": "auto", "jinja": True},
-            "description": "Everything on the GPU (or Apple Silicon), sensible context."})
-        ctx_base = {"n_gpu_layers": 999, "flash_attn": "on",
+            "ctx_size": 8192, "flash_attn": "auto", "jinja": True},
+            "description": "Sensible context; llama.cpp automatically fits as much of the "
+                           "model onto the GPU as possible."})
+        ctx_base = {"flash_attn": "on",
                     "cache_type_k": "q8_0", "cache_type_v": "q8_0", "jinja": True}
         max_ctx = _max_context_that_fits("llamacpp", model, hw, ctx_base, 1.0)
         out.append({"name": "Max context", "config": {**ctx_base, "ctx_size": max_ctx},

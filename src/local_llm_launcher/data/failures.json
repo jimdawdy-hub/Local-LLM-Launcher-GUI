@@ -42,6 +42,10 @@
       "message": "Hugging Face rejected the download — the model may be gated (license acceptance + access token required) or the token is wrong."
     },
     {
+      "match": "unrecognized arguments",
+      "message": "Your installed engine version doesn't know one of the settings that was sent (engines add and remove options between versions). The log's last lines name the offending option — clear that setting (or remove it from 'Extra raw flags') and launch again."
+    },
+    {
       "match": "Address already in use",
       "message": "Another program is already using this port. Pick a different port number and launch again."
     },

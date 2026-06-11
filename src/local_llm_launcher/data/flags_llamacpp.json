@@ -30,11 +30,11 @@
       "flag": "--n-gpu-layers",
       "label": "Layers on GPU",
       "type": "int",
-      "default": 999,
+      "default": null,
       "min": 0,
       "max": 999,
       "category": "essential",
-      "help": "How many of the model's layers run on the GPU instead of the CPU. 999 means 'all of them' (fastest). Lower it only when the model doesn't fully fit in GPU memory — each layer moved to CPU slows things down."
+      "help": "How many of the model's layers run on the GPU instead of the CPU. Leave empty for automatic — recent llama.cpp measures your GPU and fits as many as possible. Set 999 to force everything onto the GPU, or 0 for CPU only."
     },
     {
       "key": "threads",
