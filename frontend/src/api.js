@@ -39,6 +39,9 @@ export const api = {
     request(`/api/servers/${id}/chat`, { method: 'POST', body: JSON.stringify({ messages }) }),
   settings: () => request('/api/settings'),
   saveSettings: (data) => request('/api/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  openwebui: () => request('/api/openwebui'),
+  launchOpenwebui: () => request('/api/openwebui/launch', { method: 'POST' }),
+  stopOpenwebui: () => request('/api/openwebui/stop', { method: 'POST' }),
 }
 
 export function gb(bytes) {

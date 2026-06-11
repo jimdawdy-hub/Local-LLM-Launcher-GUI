@@ -82,7 +82,7 @@ export default function App() {
       <main className="main">
         <div className="main-inner">
           {tab === 'dashboard' && (
-            <Dashboard hardware={hardware} servers={servers} goLaunch={goLaunch} setTab={setTab} />
+            <Dashboard hardware={hardware} servers={servers} goLaunch={goLaunch} setTab={setTab} notify={notify} />
           )}
           {tab === 'models' && <Models hardware={hardware} goLaunch={goLaunch} notify={notify} />}
           {tab === 'launch' && (

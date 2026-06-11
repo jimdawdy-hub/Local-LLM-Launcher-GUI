@@ -5,6 +5,28 @@ when the work was done.
 
 ## 2026-06-11
 
+### Added: Open WebUI launcher on the Dashboard
+
+A new panel under "Running now" on the Dashboard launches
+[Open WebUI](https://github.com/open-webui/open-webui) — a polished chat
+interface — and wires it to your running models in one click.
+
+- The app detects whether `open-webui` is installed (on PATH). If it isn't,
+  the button is greyed out and a copyable textbox shows the install command
+  (`pip install open-webui`).
+- When it is installed, clicking **Launch Open WebUI** (1) starts
+  `open-webui serve --port 3000`, (2) pre-connects it to every model server
+  currently running here by passing their OpenAI-compatible endpoints via Open
+  WebUI's `OPENAI_API_BASE_URLS` / `OPENAI_API_KEYS` env vars (so the models
+  are ready to chat with on open), and (3) opens your browser to it
+  automatically once its `/health` endpoint responds.
+- Open WebUI is tracked with the same process lifecycle as model servers
+  (persisted to `~/.local-llm-launcher/openwebui.json`, survives GUI restarts)
+  and can be stopped from the same panel.
+- Port defaults to 3000 to avoid llama.cpp's 8080. New module
+  `openwebui.py`, three API routes (`/api/openwebui`, `/launch`, `/stop`), and
+  5 tests.
+
 ### Added: text-only mode for multimodal (vision/audio) models
 
 **The problem:** `QuantTrio/gemma-4-31B-it-AWQ-6Bit` is a *multimodal* model

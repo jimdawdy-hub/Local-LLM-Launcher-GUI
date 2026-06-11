@@ -1,4 +1,108 @@
+import { useCallback, useEffect, useState } from 'react'
+import { api } from '../api.js'
 import { Led } from '../components.jsx'
+
+function OpenWebUIPanel({ notify }) {
+  const [status, setStatus] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const refresh = useCallback(() => {
+    api.openwebui().then(setStatus).catch(() => setStatus(null))
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    const t = setInterval(refresh, 4000)
+    return () => clearInterval(t)
+  }, [refresh])
+
+  const launch = async () => {
+    setBusy(true)
+    try {
+      const s = await api.launchOpenwebui()
+      setStatus(s)
+      const n = s.connected_models || 0
+      notify(
+        n > 0
+          ? `Open WebUI is starting and will connect to your ${n} running model${n > 1 ? 's' : ''}. Your browser opens automatically when it's ready (first run can take a minute).`
+          : "Open WebUI is starting; your browser opens when it's ready. Start a model on the Launch tab to chat with it.",
+      )
+    } catch (e) {
+      notify(e.message, true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const stop = async () => {
+    setBusy(true)
+    try {
+      setStatus(await api.stopOpenwebui())
+      notify('Open WebUI stopped.')
+    } catch (e) {
+      notify(e.message, true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyCmd = () => {
+    navigator.clipboard?.writeText(status?.install_command || 'pip install open-webui')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  const installed = !!status?.installed
+  const running = !!status?.running
+
+  return (
+    <div className="panel">
+      <div className="row between">
+        <div className="row">
+          <Led level={running ? 'green' : 'off'} pulse={running} title={running ? 'running' : 'stopped'} />
+          <h2>Open WebUI</h2>
+        </div>
+        {running ? (
+          <div className="row">
+            <a className="btn primary sm" href={status.url} target="_blank" rel="noreferrer">Open Open WebUI ↗</a>
+            <button className="btn danger sm" onClick={stop} disabled={busy}>Stop</button>
+          </div>
+        ) : (
+          <button className="btn primary" onClick={launch} disabled={!installed || busy}
+            title={installed ? 'Start Open WebUI' : 'Open WebUI is not installed'}>
+            {busy ? 'Launching…' : 'Launch Open WebUI'}
+          </button>
+        )}
+      </div>
+
+      <p className="small muted" style={{ marginTop: 8 }}>
+        A polished chat interface for your local models. Launch it here, then point it at a
+        running model's endpoint (shown on the Servers tab).
+      </p>
+
+      {status && !installed && (
+        <div className="stack" style={{ marginTop: 10 }}>
+          <p className="small" style={{ color: 'var(--caution)' }}>
+            Open WebUI isn't installed yet. Run this command in your terminal, then it'll
+            light up here:
+          </p>
+          <div className="row">
+            <input className="mono" readOnly value={status.install_command}
+              onFocus={(e) => e.target.select()}
+              style={{ flex: 1, fontSize: 12.5 }}
+              aria-label="Open WebUI install command" />
+            <button className="btn sm" onClick={copyCmd}>{copied ? 'Copied' : 'Copy'}</button>
+          </div>
+        </div>
+      )}
+
+      {running && (
+        <p className="small faint mono" style={{ marginTop: 8 }}>Serving at {status.url}</p>
+      )}
+    </div>
+  )
+}
 
 function GpuBar({ gpu }) {
   const usedMb = gpu.vram_total_mb - gpu.vram_free_mb
@@ -24,7 +128,7 @@ function EngineRow({ ok, name, note }) {
   )
 }
 
-export default function Dashboard({ hardware, servers, goLaunch, setTab }) {
+export default function Dashboard({ hardware, servers, goLaunch, setTab, notify }) {
   const running = servers.filter((s) => s.running)
   return (
     <>
@@ -80,6 +184,8 @@ export default function Dashboard({ hardware, servers, goLaunch, setTab }) {
           ))}
         </div>
       </div>
+
+      <OpenWebUIPanel notify={notify} />
 
       <div className="panel inset small muted">
         <strong>How this works:</strong> pick or download a model on the <em>Models</em> tab, review the

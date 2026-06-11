@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from . import __version__, advisor, catalog, discovery, failures, hardware
 from .config import Settings
 from .downloads import DownloadManager, repo_files, search_hub
+from .openwebui import OpenWebUIManager
 from .registry import ServerManager
 
 router = APIRouter(prefix="/api")
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/api")
 settings = Settings()
 servers = ServerManager()
 downloads = DownloadManager()
+openwebui = OpenWebUIManager()
 
 _hw_cache: Dict[str, Any] = {"at": 0.0, "data": None}
 
@@ -294,3 +296,31 @@ def api_chat(server_id: str, body: ChatRequest):
                 "reasoning": msg.get("reasoning_content") or ""}
     except httpx.HTTPError as e:
         raise HTTPException(502, f"The model server didn't answer: {e}")
+
+
+# --------------------------------------------------------------- Open WebUI
+
+@router.get("/openwebui")
+def api_openwebui_status():
+    return openwebui.status()
+
+
+@router.post("/openwebui/launch")
+def api_openwebui_launch():
+    # Pre-connect Open WebUI to every model that's currently running, so they
+    # show up ready to chat with the moment it opens.
+    connect_urls = [
+        f"http://localhost:{s['port']}/v1"
+        for s in servers.list()
+        if s.get("running")
+    ]
+    try:
+        return openwebui.launch(connect_urls=connect_urls)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/openwebui/stop")
+def api_openwebui_stop():
+    openwebui.stop()
+    return openwebui.status()
