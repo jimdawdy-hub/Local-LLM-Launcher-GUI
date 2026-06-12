@@ -9,12 +9,17 @@ restarts.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import sqlite3
+import subprocess
+import sys
 import threading
 import time
 import webbrowser
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -28,6 +33,97 @@ INSTALL_COMMAND = "pip install open-webui"
 # Model servers launched here don't require an API key, but Open WebUI still
 # sends an Authorization header, so we give it a harmless placeholder.
 PLACEHOLDER_KEY = "sk-local"
+
+
+def _url_fingerprint(url: str) -> Tuple[str, Optional[str], Optional[int], str]:
+    """Identity of an endpoint for dedup: localhost and 127.0.0.1 are the same
+    server, and a trailing slash doesn't make a different one."""
+    parts = urlsplit(url.strip())
+    host = (parts.hostname or "").lower()
+    if host in ("127.0.0.1", "0.0.0.0", "::1"):
+        host = "localhost"
+    return (parts.scheme, host, parts.port, parts.path.rstrip("/"))
+
+
+# Per-connection settings Open WebUI stores for entries added through its UI;
+# we mirror them so our entries behave identically.
+_NEW_CONNECTION_CONFIG = {
+    "enable": True,
+    "tags": [],
+    "prefix_id": "",
+    "model_ids": [],
+    "connection_type": "local",
+    "auth_type": "bearer",
+}
+
+
+def merge_connections(db_path: Path, urls: List[str]) -> bool:
+    """Merge model endpoints into Open WebUI's *saved* connection list.
+
+    Open WebUI only honors the OPENAI_API_BASE_URLS env vars on its very first
+    boot; after that the list lives in its own database (webui.db) and the env
+    vars are silently ignored ("PersistentConfig"). Since we own the process
+    and only call this while it's stopped, we edit that saved list directly:
+
+    - endpoints in `urls` are appended (or re-enabled if already saved, even
+      under a 127.0.0.1-vs-localhost spelling difference);
+    - entries *we* added earlier (recognizable by PLACEHOLDER_KEY) for models
+      no longer running are removed;
+    - everything the user configured by hand is left untouched.
+
+    Returns True if the saved config was updated, False if there was nothing
+    to update (no database yet — the env vars cover that first boot).
+    """
+    db_path = Path(db_path)
+    if not db_path.is_file():
+        return False
+    try:
+        con = sqlite3.connect(db_path, timeout=5.0)
+        try:
+            row = con.execute(
+                "SELECT id, data FROM config ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return False
+            row_id, cfg = row[0], json.loads(row[1])
+
+            openai = cfg.setdefault("openai", {})
+            saved_urls = list(openai.get("api_base_urls") or [])
+            saved_keys = list(openai.get("api_keys") or [])
+            saved_keys += [""] * (len(saved_urls) - len(saved_keys))
+            saved_confs = openai.get("api_configs") or {}
+
+            wanted = {_url_fingerprint(u): u for u in urls if u}
+            merged: List[Tuple[str, str, Dict[str, Any]]] = []
+            for i, saved_url in enumerate(saved_urls):
+                key = saved_keys[i]
+                conf = dict(saved_confs.get(str(i)) or {})
+                fp = _url_fingerprint(saved_url)
+                if fp in wanted:  # already saved — make sure it's usable
+                    conf["enable"] = True
+                    wanted.pop(fp)
+                elif key == PLACEHOLDER_KEY:
+                    continue  # ours, for a model that's gone — drop it
+                merged.append((saved_url, key, conf))
+            for url in wanted.values():
+                merged.append((url, PLACEHOLDER_KEY, dict(_NEW_CONNECTION_CONFIG)))
+
+            openai["api_base_urls"] = [m[0] for m in merged]
+            openai["api_keys"] = [m[1] for m in merged]
+            openai["api_configs"] = {str(i): m[2] for i, m in enumerate(merged)}
+            if urls:
+                openai["enable"] = True
+
+            con.execute(
+                "UPDATE config SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (json.dumps(cfg), row_id),
+            )
+            con.commit()
+            return True
+        finally:
+            con.close()
+    except (sqlite3.Error, ValueError, TypeError, OSError):
+        return False  # best effort — the env vars still cover a first boot
 
 
 def _open_browser_when_ready(url: str, health_url: str, timeout: float = 240.0) -> None:
@@ -60,6 +156,50 @@ class OpenWebUIManager:
 
     def installed(self) -> bool:
         return self.binary() is not None
+
+    def _webui_db_path(self) -> Optional[Path]:
+        """Locate the webui.db Open WebUI will use, resolving its data
+        directory the same way Open WebUI itself does: $DATA_DIR if set,
+        otherwise a `data/` folder inside the installed open_webui package."""
+        env_dir = os.environ.get("DATA_DIR")
+        if env_dir:
+            return Path(env_dir).expanduser() / "webui.db"
+
+        # open-webui is often installed under a different Python than ours
+        # (e.g. pip --user vs. our venv), so ask the interpreter named in the
+        # launcher script's shebang line where the package lives.
+        for interpreter in self._candidate_interpreters():
+            try:
+                out = subprocess.run(
+                    [interpreter, "-c",
+                     "import importlib.util; s = importlib.util.find_spec('open_webui'); "
+                     "print(s.submodule_search_locations[0] if s and s.submodule_search_locations else '')"],
+                    capture_output=True, text=True, timeout=15.0,
+                ).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if out:
+                return Path(out) / "data" / "webui.db"
+        return None
+
+    def _candidate_interpreters(self) -> List[str]:
+        interpreters: List[str] = []
+        binary = self.binary()
+        if binary:
+            try:
+                shebang = Path(binary).read_text(errors="ignore").split("\n", 1)[0]
+            except OSError:
+                shebang = ""
+            if shebang.startswith("#!"):
+                tokens = shebang[2:].split()
+                if tokens and tokens[0].endswith("/env") and len(tokens) > 1:
+                    resolved = shutil.which(tokens[1])
+                    if resolved:
+                        interpreters.append(resolved)
+                elif tokens:
+                    interpreters.append(tokens[0])
+        interpreters.append(sys.executable)  # last resort: our own environment
+        return interpreters
 
     # ----------------------------------------------------------- persistence
 
@@ -128,6 +268,14 @@ class OpenWebUIManager:
 
         env: Dict[str, str] = {}
         urls = [u for u in (connect_urls or []) if u]
+
+        # The env vars below only count on Open WebUI's very first boot; once
+        # it has saved its config (webui.db), they're ignored. It's stopped
+        # right now, so merge the endpoints into that saved config directly.
+        db_path = self._webui_db_path()
+        if db_path is not None:
+            merge_connections(db_path, urls)
+
         if urls:
             env["ENABLE_OPENAI_API"] = "true"
             env["OPENAI_API_BASE_URLS"] = ";".join(urls)

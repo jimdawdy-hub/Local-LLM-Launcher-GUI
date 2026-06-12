@@ -5,6 +5,35 @@ when the work was done.
 
 ## 2026-06-11
 
+### Fixed: Open WebUI ignored the launcher's model connections after first boot
+
+**The problem:** the Open WebUI launch feature (below) passed running-model
+endpoints via `OPENAI_API_BASE_URLS` env vars — but Open WebUI treats those as
+"PersistentConfig": it reads them **only on its very first ever boot**, saves
+them into its own internal database (`webui.db`), and silently ignores the env
+vars on every boot after that. So once the user had opened Open WebUI's
+settings even once, newly launched models never appeared, and each one had to
+be added by hand under Admin Panel → Settings → Connections.
+
+**Fix:** since the launcher owns the Open WebUI process and only launches it
+when it's stopped, `openwebui.py` now merges the running models' endpoints
+directly into that saved config before starting it (`merge_connections()`):
+
+- endpoints for currently running models are appended (or re-enabled if
+  already saved — `localhost` and `127.0.0.1` are recognized as the same
+  server, so no duplicates);
+- stale entries the launcher itself added earlier (recognizable by their
+  `sk-local` placeholder key) for models no longer running are pruned;
+- connections the user added by hand — including real OpenAI API keys — are
+  never touched.
+
+The database is located the same way Open WebUI itself finds it (`$DATA_DIR`,
+else the `data/` folder inside the installed `open_webui` package — found by
+asking the interpreter named in the `open-webui` script's shebang, since it's
+often installed under a different Python than the launcher). The env vars are
+still passed too, covering a truly fresh install. Verified against a copy of
+the real `webui.db` on this machine; 5 new tests (10 total for Open WebUI).
+
 ### Added: Open WebUI launcher on the Dashboard
 
 A new panel under "Running now" on the Dashboard launches
