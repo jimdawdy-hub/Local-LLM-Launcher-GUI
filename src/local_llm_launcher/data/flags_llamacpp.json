@@ -132,6 +132,16 @@
       "help": "How the model is divided across multiple GPUs. 'layer' (whole layers per GPU) is the safe default. 'none' uses only the main GPU."
     },
     {
+      "key": "no_kv_offload",
+      "flag": "--no-kv-offload",
+      "label": "KV cache to system RAM (HEAVY SPEED PENALTY)",
+      "type": "bool",
+      "default": false,
+      "category": "advanced",
+      "advanced": true,
+      "help": "Forces the conversation memory (KV cache) into system RAM instead of the GPU. WARNING: this causes a severe speed hit — often 20–50% slower at moderate context, and 2× or worse at long context — because the GPU has to fetch prior-token data across the PCIe slot on every generated word. Only use this if the model fits on the GPU but the KV cache doesn't, and you've already tried compressing conversation memory (cache-type-k/v)."
+    },
+    {
       "key": "no_mmproj",
       "flag": "--no-mmproj",
       "label": "Text-only mode (skip vision)",

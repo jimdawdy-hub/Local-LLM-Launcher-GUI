@@ -416,9 +416,32 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
                  "Very few models support context this long, and conversation memory grows with it. "
                  "Check the model's card before going past 131,072.")
 
+    # --no-kv-offload: KV cache lives in system RAM, not GPU VRAM.
+    no_kv = bool(cfg.get("no_kv_offload"))
+    if no_kv:
+        msg = (
+            "HEAVY SPEED PENALTY — the conversation memory will be fetched from system RAM "
+            "over the PCIe bus on every generated token. Expect 20–50% slower at moderate "
+            "context, and 2× or worse at long context. Only keep this on if the model fits "
+            "on the GPU but the KV cache doesn't, and you've already tried compressing "
+            "conversation memory (cache-type-k/v set to q8_0 or q4_0)."
+        )
+        if ctx > 131072:
+            msg += (
+                " With context above 131K tokens this is the worst-case combination: "
+                "attention reads all prior tokens on every word generated, and every read "
+                "crosses the PCIe bus. Expect generation speed to drop to a crawl."
+            )
+        rep.flag("no_kv_offload", RED, msg)
+
+    # When KV is offloaded to system RAM, it doesn't consume GPU VRAM —
+    # recalculate needed_gb to reflect only weights + compute buffers on GPU.
+    if no_kv:
+        needed_gb = weights_gb + 0.7  # no KV on GPU, just weights + compute buffers
+
     return {
         "weights_gb": round(weights_gb, 1),
-        "kv_cache_gb": round(kv_gb, 1),
+        "kv_cache_gb": 0.0 if no_kv else round(kv_gb, 1),
         "working_buffer_gb": 0.7,
         "overhead_gb": 0.0,
         "needed_gb": round(needed_gb, 1),

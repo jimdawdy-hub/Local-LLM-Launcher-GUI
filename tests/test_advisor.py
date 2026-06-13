@@ -379,3 +379,44 @@ def test_kv_cache_from_config_is_sane():
            "num_attention_heads": 32, "num_key_value_heads": 8}
     gb = advisor.estimate_kv_gb(cfg, None, max_len=8192, seqs=1, dtype_bytes=2)
     assert 0.9 < gb < 1.1  # 32 layers * 8 kv heads * 128 dim * 2 * 2B * 8192 = 1.0 GB
+
+
+# ---------- --no-kv-offload (KV cache to system RAM) ----------
+
+def test_no_kv_offload_red_flag():
+    a = advisor.advise("llamacpp", gguf_model(size_gb=5.0, params=8.0),
+                       {"n_gpu_layers": 999, "ctx_size": 8192, "no_kv_offload": True},
+                       DUAL_5060TI)
+    assert a["flags"]["no_kv_offload"]["level"] == "red"
+    assert "HEAVY SPEED PENALTY" in a["flags"]["no_kv_offload"]["message"]
+
+
+def test_no_kv_offload_long_context_extra_warning():
+    a = advisor.advise("llamacpp", gguf_model(size_gb=5.0, params=8.0),
+                       {"n_gpu_layers": 999, "ctx_size": 132000, "no_kv_offload": True},
+                       DUAL_5060TI)
+    msg = a["flags"]["no_kv_offload"]["message"]
+    assert "worst-case combination" in msg
+
+
+def test_no_kv_offload_zeroes_kv_in_budget():
+    a = advisor.advise("llamacpp", gguf_model(size_gb=5.0, params=8.0),
+                       {"n_gpu_layers": 999, "ctx_size": 8192, "no_kv_offload": True},
+                       DUAL_5060TI)
+    assert a["budget"]["kv_cache_gb"] == 0.0
+
+
+def test_no_kv_offload_reduces_needed_gb():
+    normal = advisor.advise("llamacpp", gguf_model(size_gb=5.0, params=8.0),
+                            {"n_gpu_layers": 999, "ctx_size": 8192}, DUAL_5060TI)
+    offloaded = advisor.advise("llamacpp", gguf_model(size_gb=5.0, params=8.0),
+                               {"n_gpu_layers": 999, "ctx_size": 8192, "no_kv_offload": True},
+                               DUAL_5060TI)
+    assert offloaded["budget"]["needed_gb"] < normal["budget"]["needed_gb"]
+
+
+def test_no_kv_offload_false_has_no_flag():
+    a = advisor.advise("llamacpp", gguf_model(size_gb=5.0, params=8.0),
+                       {"n_gpu_layers": 999, "ctx_size": 8192, "no_kv_offload": False},
+                       DUAL_5060TI)
+    assert "no_kv_offload" not in a["flags"]
