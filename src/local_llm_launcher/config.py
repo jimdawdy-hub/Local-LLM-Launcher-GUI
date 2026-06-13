@@ -33,8 +33,9 @@ class Settings:
                 pass
 
     def save(self) -> None:
-        self.path.write_text(json.dumps(self.data, indent=2))
-        os.chmod(self.path, 0o600)
+        fd = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(self.data, indent=2))
 
     def update(self, changes: Dict[str, Any]) -> None:
         for key in DEFAULTS:

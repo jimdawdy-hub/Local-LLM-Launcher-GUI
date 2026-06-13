@@ -1,6 +1,7 @@
 """REST API for the GUI."""
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -22,15 +23,17 @@ downloads = DownloadManager()
 openwebui = OpenWebUIManager()
 
 _hw_cache: Dict[str, Any] = {"at": 0.0, "data": None}
+_hw_lock = threading.Lock()
 
 
 def get_hardware(max_age: float = 5.0) -> Dict[str, Any]:
     now = time.time()
-    if _hw_cache["data"] is None or now - _hw_cache["at"] > max_age:
-        hw = hardware.detect_hardware(llamacpp_hint=settings.data.get("llamacpp_path"))
-        _hw_cache["data"] = hw.to_dict()
-        _hw_cache["at"] = now
-    return _hw_cache["data"]
+    with _hw_lock:
+        if _hw_cache["data"] is None or now - _hw_cache["at"] > max_age:
+            hw = hardware.detect_hardware(llamacpp_hint=settings.data.get("llamacpp_path"))
+            _hw_cache["data"] = hw.to_dict()
+            _hw_cache["at"] = now
+        return _hw_cache["data"]
 
 
 def installed_models() -> List[Dict[str, Any]]:
@@ -93,6 +96,15 @@ class SettingsUpdate(BaseModel):
     llamacpp_path: Optional[str] = None
 
 
+_UNSET = object()
+
+
+class SettingsPatch(BaseModel):
+    hf_token: Optional[str] = _UNSET
+    gguf_folders: Optional[List[str]] = _UNSET
+    llamacpp_path: Optional[str] = _UNSET
+
+
 @router.put("/settings")
 def api_put_settings(body: SettingsUpdate):
     changes = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -100,6 +112,20 @@ def api_put_settings(body: SettingsUpdate):
         changes.pop("hf_token")  # masked value bounced back — keep stored token
     settings.update(changes)
     _hw_cache["data"] = None  # llamacpp_path may have changed
+    return settings.public()
+
+
+@router.patch("/settings")
+def api_patch_settings(body: Dict[str, Any]):
+    changes = {}
+    for key in ("hf_token", "gguf_folders", "llamacpp_path"):
+        if key in body:
+            val = body[key]
+            if key == "hf_token" and val == "********":
+                continue  # masked value bounced back
+            changes[key] = val
+    settings.update(changes)
+    _hw_cache["data"] = None
     return settings.public()
 
 
@@ -135,16 +161,16 @@ def api_models():
 def api_models_search(q: str):
     try:
         return {"results": search_hub(q, token=settings.data.get("hf_token"))}
-    except Exception as e:
-        raise HTTPException(502, f"Search failed: {e}")
+    except Exception:
+        raise HTTPException(502, "Search failed — check your internet connection and try again.")
 
 
 @router.get("/models/repo/{repo_id:path}")
 def api_repo_detail(repo_id: str):
     try:
         return repo_files(repo_id, token=settings.data.get("hf_token"))
-    except Exception as e:
-        raise HTTPException(502, str(e))
+    except Exception:
+        raise HTTPException(502, "Could not load repository details — check the name and try again.")
 
 
 class DownloadRequest(BaseModel):

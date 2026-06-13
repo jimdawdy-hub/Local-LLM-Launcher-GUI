@@ -11,6 +11,7 @@ from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 from .discovery import DEFAULT_HF_HUB, guess_gguf_quant
 
 _WEIGHT_SUFFIXES = (".safetensors", ".gguf", ".bin", ".json", ".txt", ".model", ".jinja")
+MAX_CONCURRENT_DOWNLOADS = 3
 
 
 def search_hub(query: str, token: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
@@ -96,6 +97,12 @@ class DownloadManager:
 
     def start(self, repo_id: str, filename: Optional[str] = None,
               token: Optional[str] = None) -> DownloadJob:
+        active = sum(1 for j in self.jobs.values() if j.status == "running")
+        if active >= MAX_CONCURRENT_DOWNLOADS:
+            raise RuntimeError(
+                f"Too many downloads already running ({active}). "
+                f"Wait for one to finish before starting another."
+            )
         try:
             detail = repo_files(repo_id, token=token)
         except Exception as e:

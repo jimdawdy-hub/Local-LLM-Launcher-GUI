@@ -18,6 +18,18 @@ def port_in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def find_free_port(preferred: int, max_tries: int = 100) -> int:
+    """Return `preferred` if free, otherwise the next free port above it."""
+    port = preferred
+    for _ in range(max_tries):
+        if not port_in_use(port):
+            return port
+        port += 1
+    raise RuntimeError(
+        f"No free port found starting from {preferred} (checked {max_tries} ports)."
+    )
+
+
 class ServerManager:
     def __init__(self, app_dir: Optional[Path] = None) -> None:
         self.app_dir = Path(app_dir) if app_dir else APP_DIR
@@ -66,10 +78,7 @@ class ServerManager:
                llamacpp_binary: Optional[str] = None) -> LocalServer:
         spec = self.build_spec(engine_mode, model, config, llamacpp_binary)
         if port_in_use(spec["port"]):
-            raise RuntimeError(
-                f"Port {spec['port']} is already in use by another program. "
-                f"Pick a different port."
-            )
+            spec["port"] = find_free_port(spec["port"])
         srv = LocalServer(
             server_id=uuid.uuid4().hex[:12],
             engine=engine_mode,

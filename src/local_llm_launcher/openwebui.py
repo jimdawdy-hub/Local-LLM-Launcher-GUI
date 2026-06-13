@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .engines.base import LocalServer
-from .registry import APP_DIR, port_in_use
+from .registry import APP_DIR, find_free_port, port_in_use
 
 # Open WebUI's own default is 8080, which collides with llama.cpp here, so we
 # default to 3000 (the port its Docker examples use).
@@ -260,6 +260,8 @@ class OpenWebUIManager:
             if open_browser:
                 webbrowser.open(status["url"])
             return status
+        if port_in_use(port):
+            port = find_free_port(port)
         if port_in_use(port):
             raise RuntimeError(
                 f"Port {port} is already in use by another program. "

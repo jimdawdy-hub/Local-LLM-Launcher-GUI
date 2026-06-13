@@ -77,8 +77,9 @@ def test_vllm_docker_command():
     assert "-p" in argv and "8002:8000" in argv  # host port maps to container 8000
     assert any(a.startswith('"device=1"') or a == '"device=1"' for a in argv) or "device=1" in " ".join(argv)
     assert "--model" in argv and "org/model-8B" in argv
-    # HF token passed via -e, value not in plain argv after -e HF_TOKEN form
-    assert "HF_TOKEN=hf_x" in argv
+    # HF token passed via --env-file (not -e) to avoid ps exposure
+    assert "--env-file" in argv
+    assert "hf_x" not in " ".join(argv)  # token value not in argv
     assert spec["container_name"].startswith("llml-")
 
 

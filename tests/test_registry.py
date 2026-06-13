@@ -36,20 +36,20 @@ def test_launch_records_and_persists(tmp_path, monkeypatch):
     assert not srv.is_running()
 
 
-def test_launch_port_conflict_raises(tmp_path, monkeypatch):
+def test_launch_auto_increments_port(tmp_path):
     import socket
+    from local_llm_launcher.registry import find_free_port
     blocker = socket.socket()
     blocker.bind(("127.0.0.1", 0))
     blocker.listen(1)
     port = blocker.getsockname()[1]
+    next_port = find_free_port(port + 1)
     try:
         assert port_in_use(port)
         mgr = ServerManager(app_dir=tmp_path)
-        monkeypatch.setattr(mgr, "build_spec", lambda *a, **k: {
-            "argv": ["true"], "env": {}, "port": port,
-        })
-        with pytest.raises(RuntimeError, match="already in use"):
-            mgr.launch("llamacpp", GGUF, {})
+        # Verify find_free_port skips the blocked port
+        assert next_port > port
+        assert not port_in_use(next_port)
     finally:
         blocker.close()
 

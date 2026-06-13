@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, gb } from '../api.js'
 import { Badge, Led } from '../components.jsx'
 
@@ -61,10 +61,28 @@ function SearchResult({ r, onPick, busy }) {
 
 // Modal to choose a single GGUF quant file (or confirm a full safetensors repo).
 function PickFileModal({ repo, onClose, onStart }) {
+  const modalRef = useRef(null)
+
+  useEffect(() => {
+    if (!repo) return
+    const handleKey = (e) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKey)
+    const el = modalRef.current
+    if (el) {
+      const first = el.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      if (first) first.focus()
+    }
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [repo, onClose])
+
   if (!repo) return null
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" ref={modalRef} role="dialog" aria-modal="true"
+        aria-label={`Download options for ${repo.repo_id}`}
+        onClick={(e) => e.stopPropagation()}>
         <h2>{repo.repo_id}</h2>
         {repo.is_gguf ? (
           <>
@@ -163,7 +181,7 @@ export default function Models({ goLaunch, notify }) {
     }
   }
 
-  const active = downloads.filter((d) => d.status !== 'done' || Date.now() === 0)
+  const active = downloads.filter((d) => d.status !== 'done')
 
   return (
     <>

@@ -106,7 +106,7 @@ function OpenWebUIPanel({ notify }) {
 
 function GpuBar({ gpu }) {
   const usedMb = gpu.vram_total_mb - gpu.vram_free_mb
-  const pct = Math.round((usedMb / gpu.vram_total_mb) * 100)
+  const pct = gpu.vram_total_mb > 0 ? Math.round((usedMb / gpu.vram_total_mb) * 100) : 0
   return (
     <div className="gpubar">
       <div className="row between small">

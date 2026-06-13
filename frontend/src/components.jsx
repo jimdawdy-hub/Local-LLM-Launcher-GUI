@@ -29,8 +29,13 @@ export function Toast({ toast, onDone }) {
   }, [toast, onDone])
   if (!toast) return null
   return (
-    <div className={`toast ${toast.error ? 'error' : ''}`} role="status">
+    <div className={`toast ${toast.error ? 'error' : ''}`} role="status" aria-live="polite">
       {toast.message}
+      <button className="toast-dismiss" onClick={onDone} aria-label="Dismiss notification"
+        style={{ marginLeft: 12, background: 'none', border: 'none', color: 'inherit',
+                 cursor: 'pointer', fontSize: 16, opacity: 0.7 }}>
+        ✕
+      </button>
     </div>
   )
 }
