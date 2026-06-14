@@ -54,6 +54,14 @@ the error into something you can actually act on.
      serving with RadixAttention prefix caching and structured generation.
      Great for agents and repeated prompts. Install via `pip install sglang`.
 
+   > **Note on SGLang support:** SGLang integration lives on the
+   > [`experimental/sglang-integration`](https://github.com/jimdawdy-hub/Local-LLM-Launcher-GUI/tree/experimental/sglang-integration)
+   > branch. It is not merged into `main` yet because upstream bugs in
+   > `apache-tvm-ffi` make it unreliable — processor loading can fail on
+   > models with multimodal architectures, and the TVM JIT compiler crashes
+   > on NVIDIA Blackwell GPUs (RTX 5060 Ti / SM120). Use at your own risk;
+   > vLLM and llama.cpp are the stable options.
+
    Don't worry too much about choosing — the app detects what you have
    installed and tells you what's missing, with instructions, on the
    **Settings** page.
