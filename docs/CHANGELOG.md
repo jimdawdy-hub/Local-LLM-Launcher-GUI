@@ -3,6 +3,92 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## 2026-06-13 — v0.2.0
+
+### Added: KV cache offload to system RAM (`--no-kv-offload`)
+
+A new advanced toggle for llama.cpp forces the conversation memory (KV cache)
+into system RAM instead of GPU VRAM. This is a last-resort option for when the
+model weights fit on the GPU but the KV cache doesn't, even after compression.
+
+- Added `--no-kv-offload` to `flags_llamacpp.json` as an advanced boolean flag.
+- The advisor gives a **red "HEAVY SPEED PENALTY"** warning explaining the
+  20–50% speed hit at moderate context and 2×+ at long context, with an extra
+  warning for the worst-case combination (context >131K tokens + CPU KV).
+- When enabled, the memory budget zeroes out KV cache from VRAM so the gauge
+  shows only weights + compute buffers on the GPU.
+- 5 new advisor tests covering: red flag, long-context extra warning, budget
+  zeroing, reduced needed_gb, and no-flag when disabled.
+
+### Added: free port auto-increment
+
+The launcher, Open WebUI, and model servers no longer crash or refuse to start
+when their default port is already in use. They now automatically find the next
+free port and use it, printing a message when the port changes.
+
+- New `find_free_port()` utility in `registry.py`.
+- `__main__.py`: auto-increments from the requested port (default 8765).
+- `openwebui.py`: auto-increments from the requested port (default 3000).
+- `registry.py`: model server launcher auto-increments on port conflict.
+
+### Fixed: TOCTOU race on settings file permissions (security)
+
+`config.py` previously wrote the settings file (containing the HuggingFace
+token) with `write_text()` (creates world-readable 0o644) and then called
+`os.chmod(0o600)` in a separate syscall — leaving a window where any local
+process could read the token. Now uses `os.open()` with mode 0o600 atomically.
+
+### Fixed: HF token exposed in Docker process list (security)
+
+`vllm_docker.py` previously passed the HuggingFace token via `-e
+HUGGING_FACE_HUB_TOKEN=<token>`, making it visible in `ps aux` to any local
+user. Secrets are now passed via `--env-file` (a temp file only Docker reads),
+while non-secret env vars still use `-e`.
+
+### Fixed: division by zero in GPU memory bar
+
+`Dashboard.jsx` could produce `NaN%` in the GPU progress bar when
+`vram_total_mb` was 0 (e.g. integrated GPU edge case or reporting error). Added
+a guard.
+
+### Fixed: dead code in download filter
+
+`Models.jsx` had a `|| Date.now() === 0` clause in its download filter — always
+false, likely a leftover debug expression. Removed.
+
+### Fixed: modal accessibility
+
+The GGUF file picker modal (`Models.jsx`) was missing `role="dialog"`,
+`aria-modal`, focus management, and Escape key handling. Now includes all
+three, plus auto-focus on the first interactive element when opened.
+
+### Fixed: toast accessibility
+
+Toast notifications (`components.jsx`) now have `aria-live="polite"` for screen
+readers and a dismiss button so error toasts can be closed before their 9-second
+timeout.
+
+### Fixed: thread safety on hardware cache
+
+`api.py`'s `_hw_cache` dict was read and written from FastAPI's thread pool
+without synchronization. Added a `threading.Lock` around all access.
+
+### Fixed: error messages leaking internal paths
+
+API responses for search and repo-detail errors previously forwarded raw
+exception text (which could contain tokens in URLs, internal file paths, or
+stack traces). Now returns only sanitized, user-friendly messages.
+
+### Added: PATCH /settings endpoint
+
+A new `PATCH /api/settings` endpoint allows explicitly clearing settings (e.g.
+`{"hf_token": null}`) — the existing PUT endpoint silently ignored null values.
+
+### Added: download concurrency cap
+
+`DownloadManager` now limits concurrent downloads to 3. Excess requests get a
+clear error message instead of spawning unlimited daemon threads.
+
 ## 2026-06-11
 
 ### Fixed: Open WebUI ignored the launcher's model connections after first boot

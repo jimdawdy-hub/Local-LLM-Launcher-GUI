@@ -79,7 +79,8 @@ local-llm-launcher
 Your web browser should open automatically to `http://127.0.0.1:8765`. If it
 doesn't, open that address yourself. **This only runs on your own computer —
 nothing is sent anywhere else**, and no other device on your network can
-reach it.
+reach it. If port 8765 is already in use, the app automatically picks the next
+free port and tells you in the terminal.
 
 To stop the app, go back to the terminal window and press `Ctrl+C`.
 
@@ -102,6 +103,9 @@ To stop the app, go back to the terminal window and press `Ctrl+C`.
    plain-English explanation and its own status light. For models that can
    also see images or hear audio, a **Text-only mode** toggle skips loading
    that part to free up memory for chat. When it's green, hit **Launch**.
+   Under **Advanced**, there's also a **KV cache to system RAM** option for
+   edge cases where the model fits on the GPU but conversation memory doesn't
+   — it comes with a clear speed penalty warning.
    ![Launch screenshot](docs/images/launch.png)
 4. **Servers** — see your running model, copy its address to use in other
    apps, watch its logs, or try it right there with the built-in test chat.
