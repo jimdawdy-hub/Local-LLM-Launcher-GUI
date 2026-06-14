@@ -2,7 +2,7 @@
 import sys
 import time
 
-from local_llm_launcher.engines import llamacpp, vllm_docker, vllm_native
+from local_llm_launcher.engines import llamacpp, sglang, vllm_docker, vllm_native
 from local_llm_launcher.engines.base import LocalServer
 from local_llm_launcher import failures
 
@@ -104,6 +104,46 @@ def test_llamacpp_picks_specific_gguf_file():
     ]
     spec = llamacpp.build(model, {"gguf_file": "a-Q8_0.gguf"}, binary="llama-server")
     assert "/x/a-Q8_0.gguf" in spec["argv"]
+
+
+# ---------- SGLang ----------
+
+def test_sglang_basic_command():
+    spec = sglang.build(MODEL, {
+        "port": 30001, "tensor_parallel_size": 2, "mem_fraction_static": 0.88,
+        "trust_remote_code": True,
+    })
+    argv = spec["argv"]
+    assert argv[:3] == ["python", "-m", "sglang.launch_server"]
+    assert "--model-path" in argv and argv[argv.index("--model-path") + 1] == "org/model-8B"
+    assert "--host" in argv and "0.0.0.0" in argv
+    assert "--port" in argv and argv[argv.index("--port") + 1] == "30001"
+    assert "--tensor-parallel-size" in argv
+    assert "--trust-remote-code" in argv  # bool: flag only, no value
+    assert "--quantization" not in argv   # None values omitted
+    assert spec["port"] == 30001
+
+
+def test_sglang_env_handling():
+    spec = sglang.build(MODEL, {"device_ids": "0,1", "hf_token": "hf_secret"})
+    assert spec["env"]["CUDA_VISIBLE_DEVICES"] == "0,1"
+    assert spec["env"]["HF_TOKEN"] == "hf_secret"
+    assert "device_ids" not in " ".join(spec["argv"])
+    assert "hf_secret" not in " ".join(spec["argv"])
+
+
+def test_sglang_extra_args():
+    spec = sglang.build(MODEL, {"extra_args": "--seed 42 --foo"})
+    assert spec["argv"][-3:] == ["--seed", "42", "--foo"]
+
+
+def test_sglang_only_explicit_config_is_emitted():
+    """Regression: catalog defaults must NOT leak into the command line."""
+    spec = sglang.build(MODEL, {"port": 30001})
+    argv = spec["argv"]
+    assert "--mem-fraction-static" not in argv
+    assert "--dtype" not in argv
+    assert "--schedule-policy" not in argv
 
 
 # ---------- lifecycle ----------

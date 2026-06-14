@@ -3,6 +3,81 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## 2026-06-14 — v0.4.0
+
+### Added: SGLang engine support
+
+[SGLang](https://github.com/sgl-project/sglang) is now a fourth engine option
+alongside vLLM native, vLLM Docker, and llama.cpp. SGLang is a high-performance
+serving framework with RadixAttention prefix caching and structured generation.
+
+**What's included:**
+- New flag catalog (`data/flags_sglang.json`) with 22 curated flags covering
+  context length, memory management, quantization, reasoning parsers, tool call
+  parsers, attention backends, structured output backends, and more.
+- Engine builder (`engines/sglang.py`) — launches via
+  `python -m sglang.launch_server --model-path <repo> --host 0.0.0.0`.
+- Hardware detection — SGLang availability checked via `importlib.util.find_spec`.
+- Full advisor support — traffic-light ratings, memory budget math, per-GPU
+  load-headroom checks, KV-cache gate prediction, reasoning-parser family
+  detection (with hyphen/underscore normalization for SGLang's `deepseek-r1`
+  vs vLLM's `deepseek_r1`), and 4 computed presets (Safe, Max context, Max
+  speed, Tight fit).
+- Dashboard shows SGLang availability in the Engines panel.
+- Settings page shows SGLang install instructions when not found.
+- SGLang-specific failure patterns in the error translator.
+- 12 new tests (4 engine builder + 8 advisor including DeepSeek-R1
+  normalization). 121 tests total, all passing.
+
+**SGLang-unique features exposed:**
+- `--mem-fraction-static` (GPU memory fraction, like vLLM's gpu_memory_utilization)
+- `--schedule-policy` with `lpm` (longest prefix match) for RadixAttention
+- `--chunked-prefill-size` for long prompt handling
+- `--kv-cache-dtype` with `fp8_e4m3`/`fp8_e5m2` options
+- `--attention-backend` (flashinfer, triton, etc.)
+- `--grammar-backend` (xgrammar, outlines, llguidance)
+- `--reasoning-parser` with SGLang-specific parsers (qwen3-thinking, kimi, step3)
+- `--tool-call-parser` with SGLang-specific parsers (qwen3_coder, deepseekv31, etc.)
+
+### Known issue: SGLang TVM-FFI bug on NVIDIA Blackwell (RTX 5060 Ti / SM120)
+
+Runtime testing of SGLang is blocked on Blackwell-generation GPUs by an
+upstream bug in the `apache-tvm-ffi` dependency. During CUDA graph capture,
+the TVM JIT compiler calls `_get_rocm_target()` in
+`tvm_ffi/cpp/extension.py` — a function that should only run on AMD ROCm
+hardware — and crashes because it cannot detect a ROCm architecture on an
+NVIDIA card. This happens regardless of `--disable-cuda-graph` because
+SGLang's piecewise CUDA graph path still triggers the same JIT kernel
+(compiling `apply_rope_inplace`).
+
+**Workaround:** Launch with `--attention-backend triton --sampling-backend
+pytorch` to bypass the FlashInfer JIT compilation entirely. The app does
+not apply this automatically — set these in the Extra raw flags field on
+the Launch page.
+
+**Background — the three known TVM-FFI bug categories:**
+
+1. **JIT compilation / ninja failures.** During CUDA graph capture or the
+   model's first forward pass, `tvm_ffi` triggers a runtime JIT step (via
+   `ninja` and `nvcc`) to build C++/CUDA kernels. Stale cache artifacts in
+   `~/.cache/tvm-ffi` can cause linker errors or header mismatches. Fix:
+   clear the cache directory to force a clean rebuild, or use
+   `--sampling-backend pytorch` to skip the JIT step.
+
+2. **Conflicting `apache-tvm-ffi` versions.** Sub-dependencies like
+   `flashinfer-python` or `xgrammar` pin specific pre-release versions
+   (e.g. `apache-tvm-ffi==0.1.0b15`). A regular `pip install sglang` may
+   fail to resolve because it prefers the stable `0.1.0` release over the
+   pre-release. Fix: pass `--prerelease=allow` to `uv pip` or `pip`.
+
+3. **C-ABI type code mismatches.** Breaking updates to `tvm_ffi` have
+   changed internal type codes (e.g. 72 → 80). Loading an older compiled
+   `.so` against a newer FFI version causes segfaults or dtype errors. Fix:
+   ensure all ecosystem packages (`tilelang`, `flashinfer`, `sglang`) are
+   updated and recompiled together in the same environment.
+
+Upstream tracking: https://github.com/sgl-project/sglang/issues
+
 ## 2026-06-14 — v0.3.0
 
 ### Rebrand: OpsPulse-inspired frontend redesign

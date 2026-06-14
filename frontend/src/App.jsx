@@ -16,11 +16,11 @@ const TABS = [
 ]
 
 const BREADCRUMBS = {
-  dashboard: 'Overview / <span>System status</span>',
-  models: 'Library / <span>Installed & search</span>',
-  launch: 'Launch / <span>Configure & start</span>',
-  servers: 'Servers / <span>Running instances</span>',
-  settings: 'Settings / <span>Configuration</span>',
+  dashboard: ['Overview / ', <span key="s">System status</span>],
+  models: ['Library / ', <span key="s">Installed & search</span>],
+  launch: ['Launch / ', <span key="s">Configure & start</span>],
+  servers: ['Servers / ', <span key="s">Running instances</span>],
+  settings: ['Settings / ', <span key="s">Configuration</span>],
 }
 
 export default function App() {
@@ -84,7 +84,7 @@ export default function App() {
             <div className="sb-logo">LL</div>
             <div className="sb-brand-text">
               <div className="sb-brand-name">Local LLM</div>
-              <div className="sb-brand-sub">Launcher v0.2.0</div>
+              <div className="sb-brand-sub">Launcher v0.4.0</div>
             </div>
           </div>
         </div>

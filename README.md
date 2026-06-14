@@ -19,9 +19,9 @@
 
 A friendly, browser-based control panel for downloading and running large
 language models ("LLMs" — the AI models behind chatbots like ChatGPT, except
-running on **your own computer**) using **vLLM** or **llama.cpp**. Built for
-people who don't want to memorize cryptic command-line flags or spend an
-afternoon guessing why a model won't load.
+running on **your own computer**) using **vLLM**, **llama.cpp**, or **SGLang**.
+Built for people who don't want to memorize cryptic command-line flags or spend
+an afternoon guessing why a model won't load.
 
 Every setting is rated 🟢 / 🟡 / 🔴 (green / yellow / red) **against your
 actual computer and the model you picked**, with a one-or-two-sentence
@@ -50,6 +50,9 @@ the error into something you can actually act on.
    - **[vLLM](https://docs.vllm.ai)** — faster for NVIDIA GPUs, uses
      HuggingFace-format models. Install via `pip install vllm` or use their
      Docker image.
+   - **[SGLang](https://github.com/sgl-project/sglang)** — high-performance
+     serving with RadixAttention prefix caching and structured generation.
+     Great for agents and repeated prompts. Install via `pip install sglang`.
 
    Don't worry too much about choosing — the app detects what you have
    installed and tells you what's missing, with instructions, on the
@@ -138,6 +141,89 @@ the second — loading successfully and then refusing to start. The app checks
 second" scenario shows up as a yellow warning with a fix (shorter context,
 more memory headroom, or compression) instead of a 10-15 minute wait followed
 by a cryptic error.
+
+## Troubleshooting
+
+### SGLang crashes on startup with a TVM / ROCm error (NVIDIA Blackwell GPUs)
+
+If you have an RTX 5060 Ti or other Blackwell-generation GPU (SM120) and
+SGLang crashes during startup with an error mentioning `_get_rocm_target`,
+`tvm_ffi`, or "Could not detect ROCm GPU architecture" — this is an upstream
+bug, not something wrong with your setup. The TVM JIT compiler mistakenly
+tries to detect AMD hardware on your NVIDIA card.
+
+**Quick fix:** In the **Launch** page, expand **Advanced** and paste this into
+the **Extra raw flags** field:
+
+```
+--attention-backend triton --sampling-backend pytorch
+```
+
+This tells SGLang to skip the FlashInfer attention kernel (which triggers the
+buggy JIT step) and use Triton + PyTorch instead. Performance is slightly
+lower but the server starts and runs correctly.
+
+### SGLang fails to install (dependency conflict)
+
+SGLang depends on `apache-tvm-ffi`, which comes in pre-release versions. If
+`pip install sglang` fails with a version resolution error, try:
+
+```bash
+pip install --prerelease=allow sglang
+```
+
+Or if you use `uv` (faster package installer):
+
+```bash
+pip install uv
+uv pip install --prerelease=allow sglang
+```
+
+### SGLang segfaults or gives dtype errors after an update
+
+The `tvm-ffi` package occasionally changes its internal type codes between
+versions. If you updated SGLang but not its sub-dependencies (like
+`flashinfer-python` or `xgrammar`), the old compiled kernels won't match the
+new FFI interface. Fix by reinstalling everything together:
+
+```bash
+pip install --upgrade --force-reinstall sglang flashinfer-python xgrammar
+```
+
+### Model loads but then refuses to start (KV cache error)
+
+SGLang (like vLLM) checks memory in two steps: first it loads the model
+weights, then it reserves conversation memory (the "KV cache"). A model can
+pass the first check and fail the second. The app catches this before you
+launch and shows a yellow warning with a fix — usually: shorten the context
+window, lower the GPU memory usage limit, or enable KV cache compression
+(`fp8_e4m3`). If you're launching outside the app, try adding:
+
+```
+--kv-cache-dtype fp8_e4m3 --chunked-prefill-size 2048
+```
+
+### The app says "SGLang is not installed" but you installed it
+
+SGLang must be installed in the same Python environment the app is running
+in. If you installed SGLang in one terminal but launched the app from a
+different virtual environment, the app can't see it. Make sure both use the
+same `.venv`:
+
+```bash
+source .venv/bin/activate
+pip install sglang
+```
+
+### General: a launch fails and the error is cryptic
+
+The **Servers** page translates common engine errors into plain language. If
+the error isn't covered, check the raw log (click the log panel on the
+Servers page) and search for the key phrase on the engine's GitHub issues:
+
+- **SGLang:** https://github.com/sgl-project/sglang/issues
+- **vLLM:** https://github.com/vllm-project/vllm/issues
+- **llama.cpp:** https://github.com/ggml-org/llama.cpp/issues
 
 ## Learn more
 

@@ -16,19 +16,19 @@ DUAL_5060TI = {
     ],
     "apple_silicon": None, "cpu_cores": 24, "ram_gb": 31.0, "disk_free_gb": 500.0,
     "total_vram_mb": 32622,
-    "engines": {"vllm_native": True, "vllm_docker": True, "llamacpp_path": "/usr/local/bin/llama-server"},
+    "engines": {"vllm_native": True, "vllm_docker": True, "llamacpp_path": "/usr/local/bin/llama-server", "sglang": False},
 }
 
 APPLE_M3 = {
     "gpus": [], "apple_silicon": {"chip": "Apple M3 Pro", "memory_gb": 36},
     "cpu_cores": 12, "ram_gb": 36.0, "disk_free_gb": 500.0, "total_vram_mb": 0,
-    "engines": {"vllm_native": False, "vllm_docker": False, "llamacpp_path": "/opt/homebrew/bin/llama-server"},
+    "engines": {"vllm_native": False, "vllm_docker": False, "llamacpp_path": "/opt/homebrew/bin/llama-server", "sglang": False},
 }
 
 CPU_ONLY = {
     "gpus": [], "apple_silicon": None, "cpu_cores": 8, "ram_gb": 16.0,
     "disk_free_gb": 100.0, "total_vram_mb": 0,
-    "engines": {"vllm_native": False, "vllm_docker": False, "llamacpp_path": "/usr/bin/llama-server"},
+    "engines": {"vllm_native": False, "vllm_docker": False, "llamacpp_path": "/usr/bin/llama-server", "sglang": False},
 }
 
 
@@ -420,3 +420,92 @@ def test_no_kv_offload_false_has_no_flag():
                        {"n_gpu_layers": 999, "ctx_size": 8192, "no_kv_offload": False},
                        DUAL_5060TI)
     assert "no_kv_offload" not in a["flags"]
+
+
+# ========================================================================= SGLang
+
+def test_sglang_small_model_fits_green():
+    a = advisor.advise("sglang", safetensors_model(size_gb=8.0, params=8.0),
+                       {"tensor_parallel_size": 2, "mem_fraction_static": 0.88},
+                       DUAL_5060TI)
+    assert a["overall"]["level"] == "green"
+    assert a["budget"]["available_gb"] > 0
+
+
+def test_sglang_huge_model_red():
+    a = advisor.advise("sglang", safetensors_model(size_gb=70.0, params=70.0, quant=None),
+                       {"tensor_parallel_size": 2, "mem_fraction_static": 0.88}, DUAL_5060TI)
+    assert a["overall"]["level"] == "red"
+
+
+def test_sglang_gguf_is_red():
+    a = advisor.advise("sglang", gguf_model(), {"tensor_parallel_size": 1}, DUAL_5060TI)
+    assert a["overall"]["level"] == "red"
+    assert "llama.cpp" in a["overall"]["headline"]
+
+
+def test_sglang_on_apple_silicon_red():
+    a = advisor.advise("sglang", safetensors_model(size_gb=4.0, params=7.0), {}, APPLE_M3)
+    assert a["overall"]["level"] == "red"
+
+
+def test_sglang_no_gpu_red():
+    a = advisor.advise("sglang", safetensors_model(size_gb=4.0, params=7.0), {}, CPU_ONLY)
+    assert a["overall"]["level"] == "red"
+
+
+def test_sglang_tp_exceeds_gpus_red():
+    a = advisor.advise("sglang", safetensors_model(size_gb=4.0, params=7.0),
+                       {"tensor_parallel_size": 4}, DUAL_5060TI)
+    assert a["flags"]["tensor_parallel_size"]["level"] == "red"
+
+
+def test_sglang_quantization_override_yellow():
+    a = advisor.advise("sglang", safetensors_model(size_gb=8.0, params=8.0),
+                       {"tensor_parallel_size": 2, "quantization": "awq"}, DUAL_5060TI)
+    assert a["flags"]["quantization"]["level"] == "yellow"
+
+
+def test_sglang_reasoning_parser_family_mismatch_red():
+    a = advisor.advise("sglang", safetensors_model(size_gb=4.0, params=7.0),
+                       {"reasoning_parser": "qwen3"},
+                       DUAL_5060TI)
+    # Model repo_id is "test/model" — no family detected, so qwen3 is just a yellow "unconfirmed"
+    assert a["flags"]["reasoning_parser"]["level"] == "yellow"
+
+
+def test_sglang_reasoning_parser_qwen3_on_qwen3_model():
+    model = safetensors_model(size_gb=4.0, params=7.0)
+    model["repo_id"] = "unsloth/Qwen3-1.7B"
+    a = advisor.advise("sglang", model,
+                       {"reasoning_parser": "qwen3", "tensor_parallel_size": 1}, DUAL_5060TI)
+    # Correct parser for the family — no flag at all
+    assert "reasoning_parser" not in a["flags"]
+
+
+def test_sglang_reasoning_parser_wrong_for_model_red():
+    model = safetensors_model(size_gb=4.0, params=7.0)
+    model["repo_id"] = "unsloth/Qwen3-1.7B"
+    a = advisor.advise("sglang", model,
+                       {"reasoning_parser": "deepseek-r1", "tensor_parallel_size": 1}, DUAL_5060TI)
+    assert a["flags"]["reasoning_parser"]["level"] == "red"
+
+
+def test_sglang_deepseek_r1_parser_normalized():
+    """deepseek-r1 (hyphen) should match deepseek_r1 (underscore) — no false RED flag."""
+    model = safetensors_model(size_gb=4.0, params=7.0)
+    model["repo_id"] = "deepseek-ai/DeepSeek-R1"
+    a = advisor.advise("sglang", model,
+                       {"reasoning_parser": "deepseek-r1", "tensor_parallel_size": 1}, DUAL_5060TI)
+    # Should NOT be red — the hyphen/underscore difference is a naming convention, not a mismatch
+    if "reasoning_parser" in a["flags"]:
+        assert a["flags"]["reasoning_parser"]["level"] != "red"
+
+
+def test_sglang_presets():
+    presets = advisor.presets("sglang", safetensors_model(size_gb=8.0, params=8.0), DUAL_5060TI)
+    names = [p["name"] for p in presets]
+    assert "Safe (recommended)" in names
+    assert "Max context" in names
+    assert "Max speed" in names
+    assert "Tight fit" in names

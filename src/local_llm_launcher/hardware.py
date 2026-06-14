@@ -38,6 +38,7 @@ class EngineAvailability:
     vllm_native: bool
     vllm_docker: bool
     llamacpp_path: Optional[str]
+    sglang: bool
 
 
 @dataclass
@@ -185,6 +186,13 @@ def _vllm_docker_available() -> bool:
         return False
 
 
+def _sglang_available() -> bool:
+    try:
+        return importlib.util.find_spec("sglang") is not None
+    except (ImportError, ValueError):
+        return False
+
+
 # Source builds (usually CUDA/Metal-optimized) take priority over generic
 # prebuilt binaries, which are often CPU-only.
 _LLAMA_LOCATIONS = [
@@ -236,6 +244,7 @@ def detect_hardware(llamacpp_hint: Optional[str] = None) -> Hardware:
         vllm_native=_vllm_native_available(),
         vllm_docker=_vllm_docker_available(),
         llamacpp_path=find_llamacpp(llamacpp_hint),
+        sglang=_sglang_available(),
     )
     if apple and (engines.vllm_native or engines.vllm_docker):
         notes.append("vLLM has no Apple Silicon GPU support — llama.cpp is recommended here.")

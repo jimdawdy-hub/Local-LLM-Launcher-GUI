@@ -29,11 +29,11 @@ def test_models_list(client):
     assert r.status_code == 200
     for m in r.json()["models"]:
         assert m["fit"] in ("green", "yellow", "red")
-        assert m["recommended_engine"] in ("vllm-native", "vllm-docker", "llamacpp")
+        assert m["recommended_engine"] in ("vllm-native", "vllm-docker", "llamacpp", "sglang")
 
 
 def test_catalog_routes(client):
-    for engine in ("vllm", "llamacpp"):
+    for engine in ("vllm", "llamacpp", "sglang"):
         r = client.get(f"/api/catalog/{engine}")
         assert r.status_code == 200
         assert len(r.json()["flags"]) > 5

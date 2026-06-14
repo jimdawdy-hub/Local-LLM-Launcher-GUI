@@ -32,7 +32,7 @@ def test_hardware_summary_dual_gpu():
     gpus = hardware.parse_nvidia_smi(NVIDIA_SMI_CSV)
     hw = hardware.Hardware(
         gpus=gpus, apple_silicon=None, cpu_cores=24, ram_gb=31.0, disk_free_gb=500.0,
-        engines=hardware.EngineAvailability(vllm_native=False, vllm_docker=True, llamacpp_path=None),
+        engines=hardware.EngineAvailability(vllm_native=False, vllm_docker=True, llamacpp_path=None, sglang=False),
     )
     assert hw.total_vram_mb == 32622
     s = hw.summary()
@@ -44,7 +44,7 @@ def test_hardware_summary_apple():
     hw = hardware.Hardware(
         gpus=[], apple_silicon=hardware.AppleSilicon(chip="Apple M3 Pro", memory_gb=36),
         cpu_cores=12, ram_gb=36.0, disk_free_gb=500.0,
-        engines=hardware.EngineAvailability(vllm_native=False, vllm_docker=False, llamacpp_path="/opt/homebrew/bin/llama-server"),
+        engines=hardware.EngineAvailability(vllm_native=False, vllm_docker=False, llamacpp_path="/opt/homebrew/bin/llama-server", sglang=False),
     )
     s = hw.summary()
     assert "Apple M3 Pro" in s and "36 GB" in s
@@ -53,7 +53,7 @@ def test_hardware_summary_apple():
 def test_hardware_summary_cpu_only():
     hw = hardware.Hardware(
         gpus=[], apple_silicon=None, cpu_cores=8, ram_gb=16.0, disk_free_gb=100.0,
-        engines=hardware.EngineAvailability(vllm_native=False, vllm_docker=False, llamacpp_path=None),
+        engines=hardware.EngineAvailability(vllm_native=False, vllm_docker=False, llamacpp_path=None, sglang=False),
     )
     assert "no GPU" in hw.summary().lower() or "cpu" in hw.summary().lower()
 
@@ -62,7 +62,7 @@ def test_to_dict_roundtrip():
     gpus = hardware.parse_nvidia_smi(NVIDIA_SMI_CSV)
     hw = hardware.Hardware(
         gpus=gpus, apple_silicon=None, cpu_cores=24, ram_gb=31.0, disk_free_gb=500.0,
-        engines=hardware.EngineAvailability(vllm_native=True, vllm_docker=False, llamacpp_path=None),
+        engines=hardware.EngineAvailability(vllm_native=True, vllm_docker=False, llamacpp_path=None, sglang=False),
     )
     d = hw.to_dict()
     assert d["gpus"][0]["name"] == "NVIDIA GeForce RTX 5060 Ti"

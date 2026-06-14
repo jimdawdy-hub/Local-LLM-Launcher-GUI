@@ -1,0 +1,238 @@
+{
+  "engine": "sglang",
+  "description": "Curated SGLang server flags. SGLang is a high-performance serving framework with RadixAttention prefix caching and structured generation.",
+  "flags": [
+    {
+      "key": "port",
+      "flag": "--port",
+      "label": "Port",
+      "type": "int",
+      "default": 30000,
+      "min": 1024,
+      "max": 65535,
+      "category": "essential",
+      "help": "The network port the server listens on. Apps connect to http://localhost:PORT/v1. Default is 30000 (different from vLLM's 8000 and llama.cpp's 8080)."
+    },
+    {
+      "key": "context_length",
+      "flag": "--context-length",
+      "label": "Context window size",
+      "type": "int",
+      "default": null,
+      "min": 512,
+      "max": 262144,
+      "step": 1024,
+      "category": "essential",
+      "help": "How much text (in tokens — roughly 3/4 of a word each) the model can keep in mind at once. Leave empty to use the model's built-in limit. Bigger needs more GPU memory."
+    },
+    {
+      "key": "mem_fraction_static",
+      "flag": "--mem-fraction-static",
+      "label": "GPU memory usage limit",
+      "type": "float",
+      "default": 0.88,
+      "min": 0.3,
+      "max": 0.98,
+      "step": 0.01,
+      "category": "essential",
+      "help": "The fraction of each GPU's memory SGLang is allowed to claim for model weights and KV cache. Higher fits bigger models but can fail to start if your desktop is also using the GPU. 0.88 is the safe default."
+    },
+    {
+      "key": "tensor_parallel_size",
+      "flag": "--tensor-parallel-size",
+      "label": "Number of GPUs to split across",
+      "type": "int",
+      "default": 1,
+      "min": 1,
+      "max": 8,
+      "category": "essential",
+      "help": "Splits the model across this many GPUs (called tensor parallelism). Use all your GPUs for big models. Must divide evenly into your GPU count."
+    },
+    {
+      "key": "trust_remote_code",
+      "flag": "--trust-remote-code",
+      "label": "Allow model's custom code",
+      "type": "bool",
+      "default": false,
+      "category": "essential",
+      "help": "Some newer models ship their own Python code that must run for the model to work. Only enable for models from sources you trust — it executes that code on your machine."
+    },
+    {
+      "key": "dtype",
+      "flag": "--dtype",
+      "label": "Math precision",
+      "type": "choice",
+      "default": "auto",
+      "choices": ["auto", "half", "float16", "bfloat16", "float", "float32"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "The number format used for calculations. 'auto' picks the right one for your model and GPU — leave it alone unless you know why you're changing it."
+    },
+    {
+      "key": "quantization",
+      "flag": "--quantization",
+      "label": "Quantization override",
+      "type": "choice",
+      "default": null,
+      "choices": [null, "awq", "fp8", "gptq", "marlin", "gptq_marlin", "awq_marlin", "bitsandbytes", "gguf", "w8a8_int8", "w8a8_fp8", "compressed-tensors"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "Forces a specific compression format instead of letting SGLang read it from the model files. Almost always leave this empty — SGLang auto-detects, and a wrong value makes the launch fail."
+    },
+    {
+      "key": "kv_cache_dtype",
+      "flag": "--kv-cache-dtype",
+      "label": "Conversation memory compression",
+      "type": "choice",
+      "default": "auto",
+      "choices": ["auto", "fp8_e5m2", "fp8_e4m3", "bf16", "bfloat16"],
+      "category": "performance",
+      "help": "Compresses the KV cache (the GPU memory that holds the conversation so far). 'fp8_e4m3' roughly halves that memory with little quality loss — a great trick when a model barely fits."
+    },
+    {
+      "key": "chunked_prefill_size",
+      "flag": "--chunked-prefill-size",
+      "label": "Long prompt chunk size",
+      "type": "int",
+      "default": null,
+      "min": -1,
+      "max": 65536,
+      "category": "performance",
+      "help": "Processes long prompts in chunks of this many tokens. Smaller chunks use less peak memory. Set to -1 to disable chunking. Leave empty for automatic."
+    },
+    {
+      "key": "max_running_requests",
+      "flag": "--max-running-requests",
+      "label": "Simultaneous requests",
+      "type": "int",
+      "default": null,
+      "min": 1,
+      "max": 512,
+      "category": "performance",
+      "help": "How many chat requests the server handles at the same time. If it's just you, leave it empty for automatic. Higher values reserve more GPU memory."
+    },
+    {
+      "key": "schedule_policy",
+      "flag": "--schedule-policy",
+      "label": "Request scheduling order",
+      "type": "choice",
+      "default": "fcfs",
+      "choices": ["fcfs", "lpm", "random", "dfs-weight", "lof"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "How the server decides which request to process next. 'fcfs' (first come, first served) is the fair default. 'lpm' (longest prefix match) is smart when many requests share the same system prompt — SGLang's RadixAttention reuses cached prefixes."
+    },
+    {
+      "key": "reasoning_parser",
+      "flag": "--reasoning-parser",
+      "label": "Thinking-model format",
+      "type": "choice",
+      "default": null,
+      "choices": [null, "qwen3", "qwen3-thinking", "deepseek-r1", "deepseek-v3", "glm45", "gpt-oss", "kimi", "step3"],
+      "category": "essential",
+      "help": "For 'thinking' models (ones that reason step-by-step before answering): tells the server how to separate the thinking from the final answer. Pick the one matching your model family, or leave empty for normal models."
+    },
+    {
+      "key": "tool_call_parser",
+      "flag": "--tool-call-parser",
+      "label": "Tool-calling format",
+      "type": "choice",
+      "default": null,
+      "choices": [null, "llama3", "mistral", "qwen", "qwen25", "qwen3_coder", "deepseekv3", "deepseekv31", "glm", "glm45", "pythonic", "step3"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "Lets the model call functions/tools in apps that support it. Pick the parser matching your model family. Leave empty if you just want chat."
+    },
+    {
+      "key": "attention_backend",
+      "flag": "--attention-backend",
+      "label": "Attention kernel backend",
+      "type": "choice",
+      "default": null,
+      "choices": [null, "flashinfer", "triton", "torch_native", "flex_attention", "fa3", "fa4"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "Which math kernel to use for attention (the model's core computation). 'flashinfer' is fastest on supported hardware. Leave empty for automatic selection."
+    },
+    {
+      "key": "grammar_backend",
+      "flag": "--grammar-backend",
+      "label": "Structured output backend",
+      "type": "choice",
+      "default": null,
+      "choices": [null, "xgrammar", "outlines", "llguidance", "none"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "Backend for forcing the model to output valid JSON or matching a regex pattern. 'xgrammar' is fast. Only matters if you use structured output features."
+    },
+    {
+      "key": "load_format",
+      "flag": "--load-format",
+      "label": "Weight file format",
+      "type": "choice",
+      "default": "auto",
+      "choices": ["auto", "pt", "safetensors", "npcache", "dummy", "gguf", "bitsandbytes", "layered"],
+      "category": "advanced",
+      "advanced": true,
+      "help": "How to read the model's weight files. 'auto' picks the best format available. Only change this if loading fails with a format-related error."
+    },
+    {
+      "key": "enable_multimodal",
+      "flag": "--enable-multimodal",
+      "label": "Enable vision/audio processing",
+      "type": "bool",
+      "default": false,
+      "category": "performance",
+      "help": "Turn this on if the model can process images or audio and you want to use that feature. Leaving it off for text-only use saves memory."
+    },
+    {
+      "key": "served_model_name",
+      "flag": "--served-model-name",
+      "label": "Model name shown to apps",
+      "type": "string",
+      "default": null,
+      "category": "api",
+      "help": "A friendly name apps will see instead of the long repository path. Optional."
+    },
+    {
+      "key": "api_key",
+      "flag": "--api-key",
+      "label": "API key (password)",
+      "type": "string",
+      "default": null,
+      "category": "api",
+      "help": "If set, apps must send this key to use the server. Recommended if other devices on your network can reach this computer."
+    },
+    {
+      "key": "device_ids",
+      "flag": null,
+      "label": "Which GPUs to use",
+      "type": "string",
+      "default": null,
+      "category": "essential",
+      "help": "Comma-separated GPU numbers (e.g. '0,1' for both, '1' for just the second card). Useful to keep your monitor's GPU free. Leave empty to use all GPUs.",
+      "env_var": "CUDA_VISIBLE_DEVICES"
+    },
+    {
+      "key": "hf_token",
+      "flag": null,
+      "label": "Hugging Face access token",
+      "type": "string",
+      "default": null,
+      "category": "api",
+      "secret": true,
+      "help": "Needed only for gated models (like Llama) that require accepting a license on huggingface.co first. Create one at huggingface.co/settings/tokens.",
+      "env_var": "HF_TOKEN"
+    },
+    {
+      "key": "extra_args",
+      "flag": null,
+      "label": "Extra raw flags",
+      "type": "string",
+      "default": null,
+      "category": "advanced",
+      "advanced": true,
+      "help": "Any additional SGLang command-line flags, exactly as you'd type them in a terminal. For experts; the app passes them through unchanged."
+    }
+  ]
+}

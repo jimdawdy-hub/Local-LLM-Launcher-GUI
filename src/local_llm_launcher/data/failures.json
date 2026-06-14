@@ -64,6 +64,18 @@
     {
       "match": "No such file or directory",
       "message": "A file or program the launch needed wasn't found. If this mentions the engine itself, it isn't installed where the app expected."
+    },
+    {
+      "match": "ModuleNotFoundError: No module named 'sglang'",
+      "message": "SGLang is not installed. Install it with: pip install sglang"
+    },
+    {
+      "match": "sglang.launch_server",
+      "message": "The SGLang server failed to start. Check that SGLang is installed correctly (pip install sglang) and that your GPU drivers are up to date."
+    },
+    {
+      "match": "radix_attention",
+      "message": "SGLang's RadixAttention (prefix caching) encountered an error. Try disabling it or using a different attention backend with --attention-backend triton."
     }
   ]
 }

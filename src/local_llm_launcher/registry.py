@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .engines import llamacpp, vllm_docker, vllm_native
+from .engines import llamacpp, sglang, vllm_docker, vllm_native
 from .engines.base import LocalServer
 
 APP_DIR = Path.home() / ".local-llm-launcher"
@@ -72,6 +72,8 @@ class ServerManager:
             return vllm_docker.build(model, config)
         if engine_mode == "llamacpp":
             return llamacpp.build(model, config, binary=llamacpp_binary or "llama-server")
+        if engine_mode == "sglang":
+            return sglang.build(model, config)
         raise ValueError(f"Unknown engine mode '{engine_mode}'")
 
     def launch(self, engine_mode: str, model: Dict[str, Any], config: Dict[str, Any],

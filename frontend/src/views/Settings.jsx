@@ -12,6 +12,13 @@ cmake --build build --config Release -j
 brew install llama.cpp`,
 }
 
+const SGLANG_INSTALL = `# Install SGLang (requires Python 3.10+ and an NVIDIA GPU):
+pip install sglang
+
+# Or with uv (faster):
+pip install uv
+uv pip install sglang`
+
 export default function Settings({ hardware, notify }) {
   const [settings, setSettings] = useState(null)
   const [token, setToken] = useState('')
@@ -51,6 +58,7 @@ export default function Settings({ hardware, notify }) {
 
   const isMac = !!hardware?.apple_silicon
   const llamaFound = !!hardware?.engines?.llamacpp_path
+  const sglangFound = !!hardware?.engines?.sglang
 
   return (
     <>
@@ -116,6 +124,23 @@ export default function Settings({ hardware, notify }) {
             </p>
             <div className="logbox" style={{ height: 'auto', maxHeight: 200 }}>
               {isMac ? LLAMA_INSTALL.mac : LLAMA_INSTALL.linux}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!sglangFound && (
+        <div className="section">
+          <div className="section-head">
+            <div className="section-title">Installing SGLang</div>
+          </div>
+          <div style={{ padding: '14px 20px' }}>
+            <p className="small muted" style={{ marginBottom: 10 }}>
+              SGLang is a high-performance serving framework with RadixAttention prefix caching
+              and structured generation. Great for agents and repeated prompts.
+            </p>
+            <div className="logbox" style={{ height: 'auto', maxHeight: 200 }}>
+              {SGLANG_INSTALL}
             </div>
           </div>
         </div>

@@ -3,14 +3,14 @@ from local_llm_launcher import catalog
 
 
 def test_load_both_catalogs():
-    for engine in ("vllm", "llamacpp"):
+    for engine in ("vllm", "llamacpp", "sglang"):
         cat = catalog.load_catalog(engine)
         assert cat["engine"] == engine
         assert len(cat["flags"]) >= 10
 
 
 def test_every_flag_has_required_fields():
-    for engine in ("vllm", "llamacpp"):
+    for engine in ("vllm", "llamacpp", "sglang"):
         for f in catalog.load_catalog(engine)["flags"]:
             assert f["key"], f
             assert f["label"], f

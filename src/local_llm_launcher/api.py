@@ -53,6 +53,8 @@ def recommended_engine(model: Dict[str, Any], hw: Dict[str, Any]) -> str:
         return "llamacpp"
     if hw.get("apple_silicon") or not hw.get("gpus"):
         return "llamacpp"
+    if hw["engines"].get("sglang"):
+        return "sglang"
     if hw["engines"].get("vllm_native"):
         return "vllm-native"
     if hw["engines"].get("vllm_docker"):
@@ -81,6 +83,7 @@ def api_about():
             },
             {"name": "vLLM", "url": "https://github.com/vllm-project/vllm"},
             {"name": "llama.cpp", "url": "https://github.com/ggml-org/llama.cpp"},
+            {"name": "SGLang", "url": "https://github.com/sgl-project/sglang"},
         ],
     }
 
@@ -138,7 +141,12 @@ def api_models():
     rank = {"green": 0, "yellow": 1, "red": 2}
     for m in installed_models():
         engine = recommended_engine(m, hw)
-        adv_engine = "llamacpp" if engine == "llamacpp" else "vllm"
+        if engine == "llamacpp":
+            adv_engine = "llamacpp"
+        elif engine == "sglang":
+            adv_engine = "sglang"
+        else:
+            adv_engine = "vllm"
         # The badge answers "can this run on my hardware at all?" — so report the
         # best outcome across presets, not just the conservative default.
         best = None
@@ -203,7 +211,7 @@ def api_catalog(engine: str):
 
 
 class AdviseRequest(BaseModel):
-    engine: str  # "vllm" | "llamacpp"
+    engine: str  # "vllm" | "llamacpp" | "sglang"
     repo_id: str
     config: Dict[str, Any] = {}
 
@@ -224,7 +232,7 @@ def api_presets(engine: str, repo_id: str):
 
 
 class LaunchRequest(BaseModel):
-    engine_mode: str  # "vllm-native" | "vllm-docker" | "llamacpp"
+    engine_mode: str  # "vllm-native" | "vllm-docker" | "llamacpp" | "sglang"
     repo_id: str
     config: Dict[str, Any] = {}
 
@@ -235,10 +243,15 @@ def api_launch(body: LaunchRequest):
     config = dict(body.config)
     if body.engine_mode.startswith("vllm") and settings.data.get("hf_token") and not config.get("hf_token"):
         config["hf_token"] = settings.data["hf_token"]
+    if body.engine_mode == "sglang" and settings.data.get("hf_token") and not config.get("hf_token"):
+        config["hf_token"] = settings.data["hf_token"]
     hw = get_hardware()
     if body.engine_mode == "llamacpp" and not hw["engines"].get("llamacpp_path"):
         raise HTTPException(400, "llama.cpp (llama-server) was not found on this computer. "
                                  "See Settings for install instructions.")
+    if body.engine_mode == "sglang" and not hw["engines"].get("sglang"):
+        raise HTTPException(400, "SGLang is not installed on this computer. "
+                                 "Install it with: pip install sglang")
     try:
         srv = servers.launch(body.engine_mode, model, config,
                              llamacpp_binary=hw["engines"].get("llamacpp_path"))

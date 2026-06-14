@@ -184,7 +184,7 @@ export default function Dashboard({ hardware, servers, goLaunch, setTab, notify 
             <div className="section-title">Engines</div>
             {hardware && (
               <StatusBadge level="green">
-                {[hardware.engines.vllm_native, hardware.engines.vllm_docker, !!hardware.engines.llamacpp_path].filter(Boolean).length} available
+                {[hardware.engines.vllm_native, hardware.engines.vllm_docker, !!hardware.engines.llamacpp_path, hardware.engines.sglang].filter(Boolean).length} available
               </StatusBadge>
             )}
           </div>
@@ -196,6 +196,8 @@ export default function Dashboard({ hardware, servers, goLaunch, setTab, notify 
                 note={hardware.engines.vllm_docker ? 'image found' : 'no Docker image'} />
               <EngineRow ok={!!hardware.engines.llamacpp_path} name="llama.cpp"
                 note={hardware.engines.llamacpp_path || 'not found'} />
+              <EngineRow ok={hardware.engines.sglang} name="SGLang"
+                note={hardware.engines.sglang ? 'installed' : 'not installed'} />
             </>
           ) : <p style={{ padding: 16, color: 'var(--ink-3)' }}>…</p>}
         </div>
