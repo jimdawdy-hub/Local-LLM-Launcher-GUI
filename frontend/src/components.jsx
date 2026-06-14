@@ -1,24 +1,12 @@
-// Small shared pieces: status LEDs (shape + color for color-blind users),
-// badges, toasts, and the VRAM gauge.
 import { useEffect } from 'react'
 
-const LED_GLYPH = { green: '✓', yellow: '!', red: '✕', off: '' }
-
-export function Led({ level = 'off', pulse = false, title }) {
+export function StatusBadge({ level = 'neutral', children }) {
   return (
-    <span
-      className={`led ${level} ${pulse ? 'pulse' : ''}`}
-      title={title || level}
-      aria-label={title || `status: ${level}`}
-      role="img"
-    >
-      {LED_GLYPH[level]}
+    <span className={`badge ${level}`}>
+      <span className="badge-dot" />
+      {children}
     </span>
   )
-}
-
-export function Badge({ level, children }) {
-  return <span className={`badge ${level || ''}`}>{children}</span>
 }
 
 export function Toast({ toast, onDone }) {
@@ -40,47 +28,38 @@ export function Toast({ toast, onDone }) {
   )
 }
 
-// The signature element: a segmented memory "fuel gauge".
-// Shows weights / conversation memory / working space vs. what's available.
-export function VramGauge({ budget }) {
-  if (!budget) return null
-  const avail = budget.available_gb || 0
-  const segs = [
-    { key: 'weights', label: 'Model weights', value: budget.weights_gb },
-    { key: 'kv', label: 'Conversation memory', value: budget.kv_cache_gb },
-    { key: 'buffer', label: 'Working space', value: budget.working_buffer_gb },
-  ]
-  const needed = budget.needed_gb || 0
-  const over = needed > avail && avail > 0
-  const scale = avail > 0 ? Math.min(100 / Math.max(avail, needed), 100 / avail) : 0
-
+export function RingGauge({ percent = 0, color = 'var(--go)', label, size = 48 }) {
+  const r = (size - 8) / 2
+  const circ = 2 * Math.PI * r
+  const offset = circ - (Math.min(percent, 100) / 100) * circ
   return (
-    <div className="gauge">
-      <div className="row between">
-        <span className="small muted">Memory needed vs. available ({budget.basis})</span>
-        <span className="mono small">
-          {needed.toFixed(1)} / {avail.toFixed(1)} GB
-        </span>
+    <div className="ring-wrap" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle className="ring-bg" cx={size/2} cy={size/2} r={r} />
+        <circle className="ring-fill" cx={size/2} cy={size/2} r={r}
+          stroke={color} strokeDasharray={circ} strokeDashoffset={offset} />
+      </svg>
+      <div className="ring-label" style={{ color }}>{label ?? `${Math.round(percent)}%`}</div>
+    </div>
+  )
+}
+
+export function MetricCard({ colorClass, label, icon, value, unit, sub, change, changeDir }) {
+  return (
+    <div className={`metric-card ${colorClass || ''}`}>
+      <div className="metric-header">
+        <span className="metric-label">{label}</span>
+        {icon && <span className={`metric-icon ${colorClass === 'green' ? 'green' : colorClass === 'amber' ? 'amber' : 'blue'}`}>{icon}</span>}
       </div>
-      <div className="bar" role="img"
-        aria-label={`Needs ${needed.toFixed(1)} of ${avail.toFixed(1)} gigabytes available`}>
-        {segs.map((s) => (
-          <div
-            key={s.key}
-            className={`seg ${s.key} ${over ? 'overcap' : ''}`}
-            style={{ width: `${Math.max((s.value || 0) * scale, 0)}%` }}
-            title={`${s.label}: ${s.value} GB`}
-          />
-        ))}
+      <div className="metric-value">
+        {value} {unit && <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink-3)' }}>{unit}</span>}
       </div>
-      <div className="legend">
-        {segs.map((s) => (
-          <span key={s.key}>
-            <span className={`chip seg ${s.key}`} style={over ? { background: 'var(--nogo)' } : {}} />
-            {s.label} <span className="mono">{s.value} GB</span>
-          </span>
-        ))}
-      </div>
+      {sub && <div className="metric-sub">{sub}</div>}
+      {change && (
+        <div className="metric-sub">
+          <span className={`metric-change ${changeDir || 'up'}`}>{change}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -90,14 +69,35 @@ export function FitVerdict({ overall }) {
   const word = { green: 'GO', yellow: 'CAUTION', red: 'NO-GO' }[overall.level]
   return (
     <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
-      <Led level={overall.level} />
+      <StatusBadge level={overall.level === 'yellow' ? 'amber' : overall.level}>{word}</StatusBadge>
       <div>
-        <span className="mono" style={{ fontWeight: 700, letterSpacing: '0.1em' }}>{word}</span>
-        <p className="small muted" style={{ marginTop: 3 }}>{overall.headline}</p>
+        <p className="small muted">{overall.headline}</p>
         {(overall.details ?? []).map((d, i) => (
           <p key={i} className="small" style={{ marginTop: 5, color: 'var(--caution)' }}>{d}</p>
         ))}
       </div>
     </div>
+  )
+}
+
+export function TopBar({ title, breadcrumb, children }) {
+  return (
+    <div className="topbar">
+      <div className="topbar-left">
+        <div>
+          <div className="topbar-title">{title}</div>
+          {breadcrumb && <div className="topbar-breadcrumb">{breadcrumb}</div>}
+        </div>
+      </div>
+      {children && <div className="topbar-right">{children}</div>}
+    </div>
+  )
+}
+
+export function ThemeToggle({ theme, onToggle }) {
+  return (
+    <button className="theme-toggle" onClick={onToggle} aria-label="Toggle theme" title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
+      {theme === 'light' ? '🌙' : '☀️'}
+    </button>
   )
 }

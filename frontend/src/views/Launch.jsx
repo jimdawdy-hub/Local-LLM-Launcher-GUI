@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
-import { Badge, FitVerdict, Led, VramGauge } from '../components.jsx'
+import { StatusBadge, FitVerdict, RingGauge } from '../components.jsx'
 
 const ENGINE_LABELS = {
   'vllm-native': 'vLLM',
@@ -84,7 +84,7 @@ function FlagRow({ spec, value, rating, onChange }) {
   const level = rating?.level ?? 'green'
   return (
     <div className="flagrow">
-      <Led level={level} title={rating?.message || 'Looks fine for your hardware'} />
+      <StatusBadge level={level === 'yellow' ? 'amber' : level}>{level === 'green' ? '✓' : level === 'yellow' ? '!' : '✕'}</StatusBadge>
       <div>
         <div className="name">{spec.label}</div>
         {spec.flag && <div className="flagname">{spec.flag}</div>}
@@ -120,10 +120,8 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
       setModels(list)
       if (!repoId && list.length > 0) setRepoId(initialModel?.repo_id ?? list[0].repo_id)
     }).catch(() => setModels([]))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // When the model changes, pick the right engine and reset config from the Safe preset.
   useEffect(() => {
     if (!model) return
     const mode = defaultEngineMode(model, hardware)
@@ -144,8 +142,6 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
     }).catch(() => setPresets([]))
   }, [model, engineMode])
 
-  // Debounced live advice as the config changes, then re-checked every 8s so
-  // the free-GPU-memory numbers track what your desktop is actually using.
   useEffect(() => {
     if (!model || !engineMode) return
     const fetchAdvice = () => {
@@ -189,10 +185,7 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
 
   if (models.length === 0) {
     return (
-      <>
-        <h1>Launch</h1>
-        <div className="empty">No models installed yet — grab one on the Models tab first.</div>
-      </>
+      <div className="empty">No models installed yet — grab one on the Models tab first.</div>
     )
   }
 
@@ -205,120 +198,151 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
   const level = engineMissing ? 'red' : advice?.overall?.level
   const ggufChoices = model?.gguf_files ?? []
 
+  const budget = advice?.budget
+  const budgetPct = budget?.available_gb > 0
+    ? Math.round(((budget.needed_gb || 0) / budget.available_gb) * 100)
+    : 0
+
   return (
     <>
-      <h1>Launch</h1>
-
-      <div className="panel stack">
-        <div className="grid2">
-          <label className="stack" style={{ gap: 4 }}>
-            <span className="small muted">Model</span>
-            <select value={repoId} onChange={(e) => setRepoId(e.target.value)}>
-              {models.map((m) => (
-                <option key={m.repo_id + m.path} value={m.repo_id}>
-                  {m.repo_id} ({m.size_gb} GB{m.quant ? `, ${m.quant}` : ''})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="stack" style={{ gap: 4 }}>
-            <span className="small muted">Engine</span>
-            <select value={engineMode ?? ''} onChange={(e) => setEngineMode(e.target.value)}>
-              {Object.entries(ENGINE_LABELS).map(([mode, label]) => (
-                <option key={mode} value={mode} disabled={!engineAvailable(mode, hardware)}>
-                  {label}{!engineAvailable(mode, hardware) ? ' — not installed' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {engineMode === 'llamacpp' && ggufChoices.length > 1 && (
-          <label className="stack" style={{ gap: 4 }}>
-            <span className="small muted">Which file (compression level)</span>
-            <select value={config.gguf_file ?? ggufChoices[0].filename}
-              onChange={(e) => setFlag('gguf_file', e.target.value)}>
-              {ggufChoices.map((f) => (
-                <option key={f.filename} value={f.filename}>
-                  {f.filename} ({f.size_gb} GB)
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        {presets.length > 0 && (
-          <div className="row" style={{ flexWrap: 'wrap' }}>
-            <span className="small muted">Presets:</span>
-            {presets.map((p) => (
-              <button key={p.name}
-                className={`btn sm ${activePreset === p.name ? 'primary' : ''}`}
-                title={p.description}
-                onClick={() => applyPreset(p)}>
-                {p.name}
-              </button>
-            ))}
+      {/* MODEL & ENGINE PICKER */}
+      <div className="section">
+        <div className="section-head">
+          <div>
+            <div className="section-title">Configuration</div>
+            <div className="section-subtitle">Select model, engine, and tune parameters</div>
           </div>
-        )}
+        </div>
+        <div style={{ padding: '14px 20px' }} className="stack">
+          <div className="grid2">
+            <label className="stack" style={{ gap: 4 }}>
+              <span className="small muted">Model</span>
+              <select value={repoId} onChange={(e) => setRepoId(e.target.value)}>
+                {models.map((m) => (
+                  <option key={m.repo_id + m.path} value={m.repo_id}>
+                    {m.repo_id} ({m.size_gb} GB{m.quant ? `, ${m.quant}` : ''})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="stack" style={{ gap: 4 }}>
+              <span className="small muted">Engine</span>
+              <select value={engineMode ?? ''} onChange={(e) => setEngineMode(e.target.value)}>
+                {Object.entries(ENGINE_LABELS).map(([mode, label]) => (
+                  <option key={mode} value={mode} disabled={!engineAvailable(mode, hardware)}>
+                    {label}{!engineAvailable(mode, hardware) ? ' — not installed' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {engineMode === 'llamacpp' && ggufChoices.length > 1 && (
+            <label className="stack" style={{ gap: 4 }}>
+              <span className="small muted">Which file (compression level)</span>
+              <select value={config.gguf_file ?? ggufChoices[0].filename}
+                onChange={(e) => setFlag('gguf_file', e.target.value)}>
+                {ggufChoices.map((f) => (
+                  <option key={f.filename} value={f.filename}>
+                    {f.filename} ({f.size_gb} GB)
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {presets.length > 0 && (
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <span className="small muted">Presets:</span>
+              {presets.map((p) => (
+                <button key={p.name}
+                  className={`btn ${activePreset === p.name ? 'btn-primary' : 'btn-ghost'} sm`}
+                  title={p.description}
+                  onClick={() => applyPreset(p)}>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* FIT VERDICT + VRAM */}
       {engineMissing && (
-        <div className="panel stack" aria-live="polite">
-          <FitVerdict overall={{
-            level: 'red',
-            headline: `${ENGINE_LABELS[engineMode]} is not installed on this computer. ` +
-              (engineMode === 'llamacpp'
-                ? 'See the Settings tab for install instructions.'
-                : 'Install vLLM (pip install vllm) or pull the vllm/vllm-openai Docker image.'),
-          }} />
+        <div className="section">
+          <div style={{ padding: '14px 20px' }}>
+            <FitVerdict overall={{
+              level: 'red',
+              headline: `${ENGINE_LABELS[engineMode]} is not installed on this computer. ` +
+                (engineMode === 'llamacpp'
+                  ? 'See the Settings tab for install instructions.'
+                  : 'Install vLLM (pip install vllm) or pull the vllm/vllm-openai Docker image.'),
+            }} />
+          </div>
         </div>
       )}
       {!engineMissing && advice && (
-        <div className="panel stack" aria-live="polite">
-          <FitVerdict overall={advice.overall} />
-          {advice.budget?.available_gb != null && <VramGauge budget={advice.budget} />}
+        <div className="section">
+          <div style={{ padding: '14px 20px' }} className="stack">
+            <FitVerdict overall={advice.overall} />
+            {budget?.available_gb != null && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <RingGauge percent={budgetPct} color={budgetPct > 90 ? 'var(--nogo)' : budgetPct > 70 ? 'var(--caution)' : 'var(--go)'} />
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{budget.needed_gb?.toFixed(1)} / {budget.available_gb?.toFixed(1)} GB</div>
+                  <div className="small muted">Memory needed vs. available ({budget.basis})</div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      <div className="panel">
-        {grouped.map(({ cat, items }) => items.length > 0 && (
-          <div key={cat} style={{ marginBottom: 14 }}>
-            <div className="section-title">{CATEGORY_TITLES[cat]}</div>
-            {items.map((spec) => (
-              <FlagRow key={spec.key} spec={spec}
-                value={config[spec.key]}
-                rating={advice?.flags?.[spec.key]}
-                onChange={(v) => setFlag(spec.key, v)} />
-            ))}
-          </div>
-        ))}
-        {advanced.length > 0 && (
-          <details className="advanced">
-            <summary>Advanced settings — most people never need these</summary>
-            {advanced.map((spec) => (
-              <FlagRow key={spec.key} spec={spec}
-                value={config[spec.key]}
-                rating={advice?.flags?.[spec.key]}
-                onChange={(v) => setFlag(spec.key, v)} />
-            ))}
-          </details>
-        )}
+      {/* FLAGS */}
+      <div className="section">
+        <div style={{ padding: '14px 20px' }}>
+          {grouped.map(({ cat, items }) => items.length > 0 && (
+            <div key={cat} style={{ marginBottom: 14 }}>
+              <div className="section-label">{CATEGORY_TITLES[cat]}</div>
+              {items.map((spec) => (
+                <FlagRow key={spec.key} spec={spec}
+                  value={config[spec.key]}
+                  rating={advice?.flags?.[spec.key]}
+                  onChange={(v) => setFlag(spec.key, v)} />
+              ))}
+            </div>
+          ))}
+          {advanced.length > 0 && (
+            <details className="advanced">
+              <summary>Advanced settings — most people never need these</summary>
+              {advanced.map((spec) => (
+                <FlagRow key={spec.key} spec={spec}
+                  value={config[spec.key]}
+                  rating={advice?.flags?.[spec.key]}
+                  onChange={(v) => setFlag(spec.key, v)} />
+              ))}
+            </details>
+          )}
+        </div>
       </div>
 
-      <div className="panel row between">
-        <div className="small muted">
-          {level === 'red'
-            ? 'Fix the red items above before launching.'
-            : level === 'yellow'
-              ? 'You can launch, but read the yellow notes first.'
-              : 'All clear for your hardware.'}
+      {/* LAUNCH BAR */}
+      <div className="section">
+        <div className="section-head">
+          <div className="small muted">
+            {level === 'red'
+              ? 'Fix the red items above before launching.'
+              : level === 'yellow'
+                ? 'You can launch, but read the yellow notes first.'
+                : 'All clear for your hardware.'}
+          </div>
+          <button
+            className={`launchbtn ${level === 'yellow' ? 'caution' : level === 'red' ? 'nogo' : ''}`}
+            disabled={launching || level === 'red'}
+            onClick={launch}>
+            {launching ? 'Launching…' : level === 'yellow' ? 'Launch anyway' : 'Launch'}
+          </button>
         </div>
-        <button
-          className={`launchbtn ${level === 'yellow' ? 'caution' : level === 'red' ? 'nogo' : ''}`}
-          disabled={launching || level === 'red'}
-          onClick={launch}>
-          {launching ? 'Launching…' : level === 'yellow' ? 'Launch anyway' : 'Launch'}
-        </button>
       </div>
     </>
   )

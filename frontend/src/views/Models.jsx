@@ -1,32 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, gb } from '../api.js'
-import { Badge, Led } from '../components.jsx'
+import { StatusBadge } from '../components.jsx'
 
 const FIT_TEXT = { green: 'Fits', yellow: 'Tight', red: "Won't fit" }
+const FIT_LEVEL = { green: 'green', yellow: 'amber', red: 'red' }
 
 function InstalledCard({ model, goLaunch }) {
   return (
     <div className="modelcard">
-      <Led level={model.fit} title={model.fit_headline} />
+      <StatusBadge level={FIT_LEVEL[model.fit] || 'neutral'}>{FIT_TEXT[model.fit] || 'Unknown'}</StatusBadge>
       <div style={{ flex: 1 }}>
         <div className="title">{model.repo_id}</div>
         <div className="meta small muted">
-          <Badge>{model.format}</Badge>
-          {model.quant && <Badge>{model.quant}</Badge>}
+          <StatusBadge>{model.format}</StatusBadge>
+          {model.quant && <StatusBadge>{model.quant}</StatusBadge>}
           <span className="mono">{model.size_gb} GB</span>
-          <Badge level={model.fit}>{FIT_TEXT[model.fit]}</Badge>
         </div>
       </div>
-      <button className="btn primary sm" onClick={() => goLaunch(model)}>Launch…</button>
+      <button className="btn btn-primary sm" onClick={() => goLaunch(model)}>Launch…</button>
     </div>
   )
 }
 
 function DownloadRow({ d }) {
-  const level = d.status === 'error' ? 'red' : d.status === 'done' ? 'green' : 'yellow'
+  const level = d.status === 'error' ? 'red' : d.status === 'done' ? 'green' : 'amber'
   return (
     <div className="row" style={{ padding: '7px 0' }}>
-      <Led level={level} />
+      <StatusBadge level={level}>{d.status}</StatusBadge>
       <div style={{ flex: 1 }}>
         <span className="mono small">{d.repo_id}{d.filename ? ` · ${d.filename}` : ''}</span>
         {d.status === 'running' && (
@@ -47,19 +47,18 @@ function SearchResult({ r, onPick, busy }) {
   return (
     <div className="modelcard">
       <div style={{ flex: 1 }}>
-      <div className="title">{r.repo_id}</div>
+        <div className="title">{r.repo_id}</div>
         <div className="meta small muted">
-          {r.is_gguf && <Badge>GGUF</Badge>}
-          {r.gated && <Badge level="yellow">license required</Badge>}
+          {r.is_gguf && <StatusBadge>GGUF</StatusBadge>}
+          {r.gated && <StatusBadge level="amber">license required</StatusBadge>}
           {r.downloads != null && <span>{r.downloads.toLocaleString()} downloads</span>}
         </div>
       </div>
-      <button className="btn sm" disabled={busy} onClick={() => onPick(r)}>Download…</button>
+      <button className="btn btn-ghost sm" disabled={busy} onClick={() => onPick(r)}>Download…</button>
     </div>
   )
 }
 
-// Modal to choose a single GGUF quant file (or confirm a full safetensors repo).
 function PickFileModal({ repo, onClose, onStart }) {
   const modalRef = useRef(null)
 
@@ -97,7 +96,7 @@ function PickFileModal({ repo, onClose, onStart }) {
                     <td className="mono small">{f.filename}</td>
                     <td className="mono small muted">{f.size_gb} GB</td>
                     <td style={{ textAlign: 'right' }}>
-                      <button className="btn sm primary" onClick={() => onStart(repo.repo_id, f.filename)}>
+                      <button className="btn btn-primary sm" onClick={() => onStart(repo.repo_id, f.filename)}>
                         Download
                       </button>
                     </td>
@@ -111,13 +110,13 @@ function PickFileModal({ repo, onClose, onStart }) {
             <p className="small muted" style={{ margin: '8px 0 12px' }}>
               This downloads the full model ({gb(repo.safetensors_total_bytes)} GB) for use with vLLM.
             </p>
-            <button className="btn primary" onClick={() => onStart(repo.repo_id, null)}>
+            <button className="btn btn-primary" onClick={() => onStart(repo.repo_id, null)}>
               Download {gb(repo.safetensors_total_bytes)} GB
             </button>
           </>
         )}
         <div style={{ marginTop: 14 }}>
-          <button className="btn ghost sm" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost sm" onClick={onClose}>Cancel</button>
         </div>
       </div>
     </div>
@@ -185,53 +184,61 @@ export default function Models({ goLaunch, notify }) {
 
   return (
     <>
-      <h1>Models</h1>
-
-      <div className="panel">
-        <h2 style={{ marginBottom: 6 }}>Get a new model</h2>
-        <p className="small muted" style={{ marginBottom: 10 }}>
-          Search huggingface.co — the public library where models are published. Tip: add
-          “GGUF” to your search for llama.cpp models, or look for “AWQ” / “4bit” versions for
-          vLLM on smaller GPUs.
-        </p>
-        <form className="row" onSubmit={doSearch}>
-          <input
-            style={{ flex: 1 }}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. Qwen3 8B GGUF"
-            aria-label="Search models"
-          />
-          <button className="btn primary" disabled={searching}>
-            {searching ? 'Searching…' : 'Search'}
-          </button>
-        </form>
-        {results && (
-          <div className="stack" style={{ marginTop: 12 }}>
-            {results.length === 0 && <p className="muted small">No matches — try different words.</p>}
-            {results.map((r) => <SearchResult key={r.repo_id} r={r} onPick={pick} />)}
+      {/* SEARCH */}
+      <div className="section">
+        <div className="section-head">
+          <div>
+            <div className="section-title">Get a new model</div>
+            <div className="section-subtitle">Search huggingface.co for models to download</div>
           </div>
-        )}
+        </div>
+        <div style={{ padding: '14px 20px' }}>
+          <form className="row" onSubmit={doSearch}>
+            <input style={{ flex: 1 }} value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder="e.g. Qwen3 8B GGUF" aria-label="Search models" />
+            <button className="btn btn-primary" disabled={searching}>
+              {searching ? 'Searching…' : 'Search'}
+            </button>
+          </form>
+          {results && (
+            <div className="stack" style={{ marginTop: 12 }}>
+              {results.length === 0 && <p className="muted small">No matches — try different words.</p>}
+              {results.map((r) => <SearchResult key={r.repo_id} r={r} onPick={pick} />)}
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* DOWNLOADS */}
       {active.length > 0 && (
-        <div className="panel">
-          <h2>Downloads</h2>
-          {active.map((d) => <DownloadRow key={d.id} d={d} />)}
+        <div className="section">
+          <div className="section-head">
+            <div className="section-title">Downloads</div>
+          </div>
+          <div style={{ padding: '10px 16px' }}>
+            {active.map((d) => <DownloadRow key={d.id} d={d} />)}
+          </div>
         </div>
       )}
 
-      <div className="panel">
-        <h2 style={{ marginBottom: 10 }}>Installed on this computer</h2>
-        {models === null && <p className="muted">Scanning…</p>}
-        {models?.length === 0 && (
-          <div className="empty">
-            No models yet. Search above to download your first one — a small GGUF model
-            (e.g. “Qwen3 4B GGUF”) is a good start.
+      {/* INSTALLED */}
+      <div className="section">
+        <div className="section-head">
+          <div>
+            <div className="section-title">Installed on this computer</div>
           </div>
-        )}
-        <div className="stack">
-          {models?.map((m) => <InstalledCard key={m.repo_id + m.path} model={m} goLaunch={goLaunch} />)}
+        </div>
+        <div style={{ padding: '14px 20px' }}>
+          {models === null && <p className="muted">Scanning…</p>}
+          {models?.length === 0 && (
+            <div className="empty">
+              No models yet. Search above to download your first one — a small GGUF model
+              (e.g. "Qwen3 4B GGUF") is a good start.
+            </div>
+          )}
+          <div className="stack">
+            {models?.map((m) => <InstalledCard key={m.repo_id + m.path} model={m} goLaunch={goLaunch} />)}
+          </div>
         </div>
       </div>
 

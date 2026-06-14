@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
-import { Led, Toast } from './components.jsx'
+import { Toast, TopBar, ThemeToggle } from './components.jsx'
 import Dashboard from './views/Dashboard.jsx'
 import Models from './views/Models.jsx'
 import Launch from './views/Launch.jsx'
@@ -8,20 +8,41 @@ import Servers from './views/Servers.jsx'
 import Settings from './views/Settings.jsx'
 
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'models', label: 'Models' },
-  { id: 'launch', label: 'Launch' },
-  { id: 'servers', label: 'Servers' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'dashboard', label: 'Dashboard', icon: '■' },
+  { id: 'models', label: 'Models', icon: '▶', badge: true },
+  { id: 'launch', label: 'Launch', icon: '⚡' },
+  { id: 'servers', label: 'Servers', icon: '⚙' },
+  { id: 'settings', label: 'Settings', icon: '✎' },
 ]
+
+const BREADCRUMBS = {
+  dashboard: 'Overview / <span>System status</span>',
+  models: 'Library / <span>Installed & search</span>',
+  launch: 'Launch / <span>Configure & start</span>',
+  servers: 'Servers / <span>Running instances</span>',
+  settings: 'Settings / <span>Configuration</span>',
+}
 
 export default function App() {
   const [tab, setTab] = useState('dashboard')
   const [hardware, setHardware] = useState(null)
   const [servers, setServers] = useState([])
   const [toast, setToast] = useState(null)
-  // Set when a view wants to pre-select a model on the Launch tab.
   const [launchModel, setLaunchModel] = useState(null)
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light')
+
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => {
+      const next = prev === 'light' ? 'dark' : 'light'
+      localStorage.setItem('theme', next)
+      document.documentElement.setAttribute('data-theme', next)
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
 
   const notify = useCallback((message, error = false) => setToast({ message, error, at: Date.now() }), [])
 
@@ -47,40 +68,70 @@ export default function App() {
   }, [])
 
   const running = servers.filter((s) => s.running).length
+  const modelCount = hardware ? null : null
+  const vramUsed = hardware?.total_vram_mb
+    ? (hardware.total_vram_mb / 1024).toFixed(1)
+    : null
+  const vramTotal = hardware?.total_vram_mb
+    ? Math.round(hardware.total_vram_mb / 1024)
+    : null
 
   return (
     <div className="frame">
-      <aside className="rail">
-        <div className="brand">
-          <h1>Local-LLM<br />Launcher</h1>
-          <span className="sub">launch control</span>
+      <aside className="sidebar">
+        <div className="sb-brand">
+          <div className="sb-brand-row">
+            <div className="sb-logo">LL</div>
+            <div className="sb-brand-text">
+              <div className="sb-brand-name">Local LLM</div>
+              <div className="sb-brand-sub">Launcher v0.2.0</div>
+            </div>
+          </div>
         </div>
-        <nav aria-label="Main">
+
+        <div className="sb-section">
+          <div className="sb-section-label">Navigation</div>
+        </div>
+        <nav className="sb-nav" aria-label="Main">
           {TABS.map((t) => (
             <button
               key={t.id}
-              className={`navbtn ${tab === t.id ? 'active' : ''}`}
+              className={`sb-btn ${tab === t.id ? 'active' : ''}`}
               onClick={() => setTab(t.id)}
             >
-              {t.id === 'servers'
-                ? <Led level={running > 0 ? 'green' : 'off'} pulse={running > 0} title={`${running} running`} />
-                : <span style={{ width: 17 }} />}
+              <span className="sb-icon">{t.icon}</span>
               {t.label}
-              {t.id === 'servers' && running > 0 ? ` (${running})` : ''}
+              {t.id === 'servers' && running > 0 && <span className="sb-badge">{running}</span>}
             </button>
           ))}
         </nav>
-        <div className="spacer" />
-        <div className="railfoot">
-          {hardware && <span className="mono">{hardware.gpus.length > 0
-            ? `${hardware.gpus.length} GPU · ${Math.round(hardware.total_vram_mb / 1024)} GB VRAM`
-            : hardware.apple_silicon ? hardware.apple_silicon.chip : 'CPU only'}</span>}
-          <span>Based on <a href="https://github.com/Chen-zexi/vllm-cli" target="_blank" rel="noreferrer">vllm-cli</a> by Chen-zexi</span>
+
+        <div className="sb-spacer" />
+
+        <div className="sb-status">
+          <div className="sb-status-row">
+            <span className="sb-status-dot" />
+            <span className="sb-status-text">Active</span>
+            <span className="sb-status-val">{running} server{running !== 1 ? 's' : ''}</span>
+          </div>
+          {vramUsed && (
+            <div className="sb-status-row">
+              <span className="sb-status-dot" style={{ background: 'var(--accent)' }} />
+              <span className="sb-status-text">VRAM</span>
+              <span className="sb-status-val">{vramUsed} / {vramTotal} GB</span>
+            </div>
+          )}
         </div>
       </aside>
 
       <main className="main">
-        <div className="main-inner">
+        <TopBar title={TABS.find(t => t.id === tab)?.label} breadcrumb={BREADCRUMBS[tab]}>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          <button className="topbar-btn topbar-btn-ghost" onClick={refreshServers}>Refresh</button>
+          <button className="topbar-btn topbar-btn-primary" onClick={() => goLaunch(null)}>Launch a model</button>
+        </TopBar>
+
+        <div className="content">
           {tab === 'dashboard' && (
             <Dashboard hardware={hardware} servers={servers} goLaunch={goLaunch} setTab={setTab} notify={notify} />
           )}

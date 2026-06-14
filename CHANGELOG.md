@@ -3,6 +3,37 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## 2026-06-14 — v0.3.0
+
+### Rebrand: OpsPulse-inspired frontend redesign
+
+Complete visual overhaul of the frontend from the original "AI-generated dark theme" to a professional SaaS dashboard aesthetic inspired by [OpsPulse by Orbix Studio](https://me.muz.li/orbix-studio/opspulse-ai-operations-compliance-saas-dashboard-design).
+
+**Design language:**
+- Light background (`#f8f9fc`) with dark sidebar (`#111827`) — replaces the all-dark layout
+- Plus Jakarta Sans (display + body) and JetBrains Mono (code) — replaces Space Grotesk / IBM Plex Sans
+- White surface cards with subtle borders and shadows
+- Metric cards with colored top borders and icon accents
+- Status badges with dot indicators (green/amber/red/neutral)
+- Structured data tables with striped headers
+
+**New components:**
+- `TopBar` — sticky header with breadcrumb navigation and action buttons
+- `MetricCard` — OpsPulse-style stat cards for the Dashboard
+- `RingGauge` — SVG circular progress indicator (replaces segmented VRAM bar)
+- `StatusBadge` — dot + label badge component
+- `ThemeToggle` — dark/light mode switch with localStorage persistence
+
+**Restyled views:** Dashboard, Models, Launch, Servers, Settings — all updated to match the new design language.
+
+### Added: dark/light theme toggle
+
+A 🌙/☀️ toggle button in the top bar switches between the light OpsPulse theme and a dark variant. The user's preference is saved to localStorage and persists across sessions.
+
+- CSS variables overridden via `[data-theme="dark"]` on `:root`
+- Dark theme uses muted dark surfaces (`#181b25`), adjusted border/shadow colors, and brighter accent colors for contrast
+- Hardcoded color overrides for data tables, log boxes, and hover states
+
 ## 2026-06-13 — v0.2.0
 
 ### Added: KV cache offload to system RAM (`--no-kv-offload`)

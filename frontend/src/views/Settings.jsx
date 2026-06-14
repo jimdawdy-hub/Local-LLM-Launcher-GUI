@@ -54,77 +54,89 @@ export default function Settings({ hardware, notify }) {
 
   return (
     <>
-      <h1>Settings</h1>
-
-      <form className="panel stack" onSubmit={save}>
-        <div>
-          <h2>Hugging Face access token</h2>
-          <p className="small muted" style={{ margin: '4px 0 8px' }}>
-            Only needed for “gated” models (like Meta's Llama) where you must accept a license
-            first. Create one at{' '}
-            <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">
-              huggingface.co/settings/tokens
-            </a>{' '}
-            — a “read” token is enough. It is stored only on this computer.
-          </p>
-          <input type="password" value={token} onChange={(e) => setToken(e.target.value)}
-            placeholder={settings?.hf_token_set ? 'Saved (hidden)' : 'hf_…'}
-            style={{ width: '100%', maxWidth: 420 }} />
+      <form className="section" onSubmit={save}>
+        <div className="section-head">
+          <div>
+            <div className="section-title">Settings</div>
+            <div className="section-subtitle">Configure tokens, paths, and preferences</div>
+          </div>
+          <button className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
         </div>
 
-        <div>
-          <h2>Extra GGUF folders</h2>
-          <p className="small muted" style={{ margin: '4px 0 8px' }}>
-            If you keep .gguf model files outside the standard download cache, list those
-            folders here (one per line) and they'll show up on the Models tab.
-          </p>
-          <textarea rows={3} value={folders} onChange={(e) => setFolders(e.target.value)}
-            placeholder={'/home/you/models\n/mnt/storage/gguf'}
-            style={{ width: '100%', maxWidth: 560, fontFamily: 'var(--font-mono)', fontSize: 12.5 }} />
-        </div>
+        <div style={{ padding: '14px 20px' }} className="stack">
+          <div>
+            <h3>Hugging Face access token</h3>
+            <p className="small muted" style={{ margin: '4px 0 8px' }}>
+              Only needed for "gated" models (like Meta's Llama) where you must accept a license
+              first. Create one at{' '}
+              <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">
+                huggingface.co/settings/tokens
+              </a>{' '}
+              — a "read" token is enough. It is stored only on this computer.
+            </p>
+            <input type="password" value={token} onChange={(e) => setToken(e.target.value)}
+              placeholder={settings?.hf_token_set ? 'Saved (hidden)' : 'hf_…'}
+              style={{ width: '100%', maxWidth: 420 }} />
+          </div>
 
-        <div>
-          <h2>llama.cpp location</h2>
-          <p className="small muted" style={{ margin: '4px 0 8px' }}>
-            {llamaFound
-              ? <>Found at <code>{hardware.engines.llamacpp_path}</code>. Set a path here only to use a different copy.</>
-              : 'llama-server was not found automatically. If you installed it somewhere unusual, give the full path here.'}
-          </p>
-          <input value={llamaPath} onChange={(e) => setLlamaPath(e.target.value)}
-            placeholder="/path/to/llama-server"
-            style={{ width: '100%', maxWidth: 560, fontFamily: 'var(--font-mono)', fontSize: 12.5 }} />
-        </div>
+          <div>
+            <h3>Extra GGUF folders</h3>
+            <p className="small muted" style={{ margin: '4px 0 8px' }}>
+              If you keep .gguf model files outside the standard download cache, list those
+              folders here (one per line) and they'll show up on the Models tab.
+            </p>
+            <textarea rows={3} value={folders} onChange={(e) => setFolders(e.target.value)}
+              placeholder={'/home/you/models\n/mnt/storage/gguf'}
+              style={{ width: '100%', maxWidth: 560, fontFamily: 'var(--font-mono)', fontSize: 12.5 }} />
+          </div>
 
-        <div>
-          <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+          <div>
+            <h3>llama.cpp location</h3>
+            <p className="small muted" style={{ margin: '4px 0 8px' }}>
+              {llamaFound
+                ? <>Found at <code className="mono">{hardware.engines.llamacpp_path}</code>. Set a path here only to use a different copy.</>
+                : 'llama-server was not found automatically. If you installed it somewhere unusual, give the full path here.'}
+            </p>
+            <input value={llamaPath} onChange={(e) => setLlamaPath(e.target.value)}
+              placeholder="/path/to/llama-server"
+              style={{ width: '100%', maxWidth: 560, fontFamily: 'var(--font-mono)', fontSize: 12.5 }} />
+          </div>
         </div>
       </form>
 
       {!llamaFound && (
-        <div className="panel">
-          <h2>Installing llama.cpp</h2>
-          <p className="small muted" style={{ margin: '6px 0 10px' }}>
-            llama.cpp is the engine for GGUF models — the most beginner-friendly format.
-            Install it with the commands below, then come back here.
-          </p>
-          <div className="logbox" style={{ height: 'auto', maxHeight: 200 }}>
-            {isMac ? LLAMA_INSTALL.mac : LLAMA_INSTALL.linux}
+        <div className="section">
+          <div className="section-head">
+            <div className="section-title">Installing llama.cpp</div>
+          </div>
+          <div style={{ padding: '14px 20px' }}>
+            <p className="small muted" style={{ marginBottom: 10 }}>
+              llama.cpp is the engine for GGUF models — the most beginner-friendly format.
+              Install it with the commands below, then come back here.
+            </p>
+            <div className="logbox" style={{ height: 'auto', maxHeight: 200 }}>
+              {isMac ? LLAMA_INSTALL.mac : LLAMA_INSTALL.linux}
+            </div>
           </div>
         </div>
       )}
 
-      <div className="panel">
-        <h2>About</h2>
-        <p className="small muted" style={{ margin: '6px 0 10px' }}>
-          Local-LLM-Launcher-GUI {about?.version && `v${about.version}`} — a friendly way to run
-          large language models on your own computer.
-        </p>
-        {about?.credits?.map((c) => (
-          <p key={c.url} className="small" style={{ padding: '3px 0' }}>
-            <a href={c.url} target="_blank" rel="noreferrer">{c.name}</a>
-            {c.note && <span className="muted"> — {c.note}</span>}
+      <div className="section">
+        <div className="section-head">
+          <div className="section-title">About</div>
+        </div>
+        <div style={{ padding: '14px 20px' }}>
+          <p className="small muted">
+            Local-LLM-Launcher-GUI {about?.version && `v${about.version}`} — a friendly way to run
+            large language models on your own computer.
           </p>
-        ))}
+          {about?.credits?.map((c) => (
+            <p key={c.url} className="small" style={{ padding: '3px 0' }}>
+              <a href={c.url} target="_blank" rel="noreferrer">{c.name}</a>
+              {c.note && <span className="muted"> — {c.note}</span>}
+            </p>
+          ))}
+        </div>
       </div>
     </>
   )
