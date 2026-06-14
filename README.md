@@ -31,6 +31,14 @@ the error into something you can actually act on.
 
 ![Dashboard screenshot](docs/images/dashboard.png)
 
+> **Experimental: SGLang support.** An
+> [`experimental/sglang-integration`](https://github.com/jimdawdy-hub/Local-LLM-Launcher-GUI/tree/experimental/sglang-integration)
+> branch adds [SGLang](https://github.com/sgl-project/sglang) as a fourth
+> engine. It is **unstable** — upstream bugs in `apache-tvm-ffi` cause
+> processor loading failures and JIT crashes, especially on NVIDIA Blackwell
+> GPUs (RTX 5060 Ti). Testing only; vLLM and llama.cpp remain the reliable
+> options.
+
 ---
 
 ## What you need before you start
