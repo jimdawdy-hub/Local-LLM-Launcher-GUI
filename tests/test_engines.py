@@ -5,6 +5,7 @@ import time
 from local_llm_launcher.engines import llamacpp, vllm_docker, vllm_native
 from local_llm_launcher.engines.base import LocalServer
 from local_llm_launcher import failures
+from pathlib import Path
 
 MODEL = {
     "repo_id": "org/model-8B", "path": "/snap/dir", "format": "safetensors",
@@ -22,6 +23,7 @@ GGUF = {
 
 
 def test_vllm_native_basic_command():
+    spec = vllm_native.build(MODEL, {"port": 8002, "tensor_parallel_size": 2})
     spec = vllm_native.build(MODEL, {
         "port": 8002, "tensor_parallel_size": 2, "gpu_memory_utilization": 0.85,
         "max_model_len": 8192, "trust_remote_code": True,
@@ -74,13 +76,57 @@ def test_vllm_docker_command():
     argv = spec["argv"]
     assert argv[:2] == ["docker", "run"]
     assert "--ipc=host" in argv
-    assert "-p" in argv and "8002:8000" in argv  # host port maps to container 8000
+    assert "-p" in argv and "8002:8000" in argv[argv.index("-p") + 1]  # host port maps to container 8000
     assert any(a.startswith('"device=1"') or a == '"device=1"' for a in argv) or "device=1" in " ".join(argv)
     assert "--model" in argv and "org/model-8B" in argv
     # HF token passed via --env-file (not -e) to avoid ps exposure
     assert "--env-file" in argv
     assert "hf_x" not in " ".join(argv)  # token value not in argv
     assert spec["container_name"].startswith("llml-")
+
+
+def test_vllm_docker_loopback_binding_by_default():
+    spec = vllm_docker.build(MODEL, {"port": 8002})
+    i = spec["argv"].index("-p")
+    assert spec["argv"][i + 1] == "127.0.0.1:8002:8000"
+
+
+def test_vllm_docker_lan_binding_when_enabled():
+    spec = vllm_docker.build(MODEL, {"port": 8002, "host": "0.0.0.0"})
+    i = spec["argv"].index("-p")
+    assert spec["argv"][i + 1] == "0.0.0.0:8002:8000"
+
+
+def test_vllm_docker_spec_carries_env_file_path(tmp_path):
+    spec = vllm_docker.build(MODEL, {"port": 8002, "hf_token": "hf_x"})
+    assert "--env-file" in spec["argv"]
+    env_file = spec.get("env_file")
+    assert env_file and Path(env_file).is_file()
+    assert "hf_x" in Path(env_file).read_text()
+
+
+def test_vllm_native_loopback_binding_by_default():
+    spec = vllm_native.build(MODEL, {"port": 8002})
+    i = spec["argv"].index("--host")
+    assert spec["argv"][i + 1] == "127.0.0.1"
+
+
+def test_vllm_native_lan_binding_when_enabled():
+    spec = vllm_native.build(MODEL, {"port": 8002, "host": "0.0.0.0"})
+    i = spec["argv"].index("--host")
+    assert spec["argv"][i + 1] == "0.0.0.0"
+
+
+def test_llamacpp_loopback_binding_by_default():
+    spec = llamacpp.build(GGUF, {"port": 8080}, binary="llama-server")
+    i = spec["argv"].index("--host")
+    assert spec["argv"][i + 1] == "127.0.0.1"
+
+
+def test_llamacpp_lan_binding_when_enabled():
+    spec = llamacpp.build(GGUF, {"port": 8080, "host": "0.0.0.0"}, binary="llama-server")
+    i = spec["argv"].index("--host")
+    assert spec["argv"][i + 1] == "0.0.0.0"
 
 
 def test_llamacpp_command():
@@ -125,6 +171,23 @@ def test_local_server_lifecycle(tmp_path):
     finally:
         assert srv.stop()
     assert not srv.is_running()
+
+
+def test_local_server_env_file_deleted_on_stop(tmp_path):
+    srv = LocalServer(
+        server_id="env1", engine="vllm-docker", model_label="org/model-8B", port=9997,
+        argv=[sys.executable, "-c", "import time; time.sleep(60)"],
+        env={}, log_dir=tmp_path, env_file=str(tmp_path / "llml-x.env"),
+    )
+    env_file = Path(srv.env_file)
+    env_file.write_text("HF_TOKEN=hf_x\n")
+    assert srv.start()
+    try:
+        assert srv.is_running()
+        assert env_file.is_file()
+    finally:
+        assert srv.stop()
+    assert not env_file.exists()
 
 
 def test_local_server_detects_exit(tmp_path):

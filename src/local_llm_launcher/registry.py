@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from .engines import llamacpp, vllm_docker, vllm_native
 from .engines.base import LocalServer
+from . import catalog
 
 APP_DIR = Path.home() / ".local-llm-launcher"
 
@@ -76,9 +77,13 @@ class ServerManager:
 
     def launch(self, engine_mode: str, model: Dict[str, Any], config: Dict[str, Any],
                llamacpp_binary: Optional[str] = None) -> LocalServer:
+        # Resolve the port into the config BEFORE building the command, so the
+        # auto-incremented port lands in the argv, not just in the record.
+        config = dict(config)
+        default_port = catalog.defaults("llamacpp")["port"] if engine_mode == "llamacpp" \
+            else catalog.defaults("vllm")["port"]
+        config["port"] = find_free_port(int(config.get("port", default_port)))
         spec = self.build_spec(engine_mode, model, config, llamacpp_binary)
-        if port_in_use(spec["port"]):
-            spec["port"] = find_free_port(spec["port"])
         srv = LocalServer(
             server_id=uuid.uuid4().hex[:12],
             engine=engine_mode,
@@ -88,8 +93,10 @@ class ServerManager:
             env=spec.get("env") or {},
             log_dir=self.log_dir,
             container_name=spec.get("container_name"),
+            env_file=spec.get("env_file"),
         )
         if not srv.start():
+            srv._cleanup_env_file()
             raise RuntimeError("The server process failed to start. Check the logs for details.")
         self.servers[srv.server_id] = srv
         self._save()
@@ -117,6 +124,8 @@ class ServerManager:
             return False
         if srv.is_running():
             srv.stop()
+        else:
+            srv._cleanup_env_file()  # server already dead — still delete its env file
         self._save()
         return True
 

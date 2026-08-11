@@ -17,6 +17,7 @@ export default function Settings({ hardware, notify }) {
   const [token, setToken] = useState('')
   const [folders, setFolders] = useState('')
   const [llamaPath, setLlamaPath] = useState('')
+  const [lanAccess, setLanAccess] = useState(false)
   const [about, setAbout] = useState(null)
   const [saving, setSaving] = useState(false)
 
@@ -26,6 +27,7 @@ export default function Settings({ hardware, notify }) {
       setToken(s.hf_token ?? '')
       setFolders((s.gguf_folders ?? []).join('\n'))
       setLlamaPath(s.llamacpp_path ?? '')
+      setLanAccess(!!s.lan_access)
     }).catch(() => setSettings({}))
     api.about().then(setAbout).catch(() => setAbout(null))
   }, [])
@@ -38,6 +40,7 @@ export default function Settings({ hardware, notify }) {
         hf_token: token || null,
         gguf_folders: folders.split('\n').map((f) => f.trim()).filter(Boolean),
         llamacpp_path: llamaPath || null,
+        lan_access: lanAccess,
       })
       setSettings(updated)
       setToken(updated.hf_token ?? '')
@@ -100,6 +103,19 @@ export default function Settings({ hardware, notify }) {
             <input value={llamaPath} onChange={(e) => setLlamaPath(e.target.value)}
               placeholder="/path/to/llama-server"
               style={{ width: '100%', maxWidth: 560, fontFamily: 'var(--font-mono)', fontSize: 12.5 }} />
+          </div>
+
+          <div>
+            <h3>Allow local network access</h3>
+            <p className="small muted" style={{ margin: '4px 0 8px' }}>
+              When off (default), model servers only listen on this computer (127.0.0.1) —
+              the safe choice. Turn this on to let other devices on your local network reach
+              the models, e.g. from your phone.
+            </p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={lanAccess} onChange={(e) => setLanAccess(e.target.checked)} />
+              Expose servers to my local network
+            </label>
           </div>
         </div>
       </form>

@@ -86,7 +86,7 @@ def test_launch_wires_model_connection_env(tmp_path, monkeypatch):
 
 
 def test_api_openwebui_status_route():
-    client = TestClient(create_app())
+    client = TestClient(create_app(), base_url="http://127.0.0.1")
     r = client.get("/api/openwebui")
     assert r.status_code == 200
     body = r.json()

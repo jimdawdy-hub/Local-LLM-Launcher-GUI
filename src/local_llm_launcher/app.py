@@ -5,6 +5,7 @@ from importlib import resources
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -13,6 +14,8 @@ from .api import router
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Local-LLM-Launcher-GUI")
+    # DNS-rebinding protection: only loopback hosts may reach the API.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
     app.include_router(router)
 
     static_dir = Path(str(resources.files("local_llm_launcher") / "static"))

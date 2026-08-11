@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
+import psutil
 
 
 class LocalServer:
@@ -31,6 +32,8 @@ class LocalServer:
         pid: Optional[int] = None,
         started_at: Optional[str] = None,
         log_path: Optional[str] = None,
+        pid_create_time: Optional[float] = None,
+        env_file: Optional[str] = None,
     ) -> None:
         self.server_id = server_id
         self.engine = engine
@@ -41,7 +44,9 @@ class LocalServer:
         self.container_name = container_name
         self.process: Optional[subprocess.Popen] = None
         self.pid = pid
+        self.pid_create_time = pid_create_time
         self.started_at = started_at
+        self.env_file = Path(env_file) if env_file else None
         log_dir = Path(log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
         if log_path:
@@ -73,6 +78,10 @@ class LocalServer:
             )
             log_handle.close()  # child keeps its own descriptor
             self.pid = self.process.pid
+            try:
+                self.pid_create_time = psutil.Process(self.pid).create_time()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                self.pid_create_time = None
             self.started_at = datetime.now(timezone.utc).isoformat()
             return True
         except (OSError, subprocess.SubprocessError) as e:
@@ -89,6 +98,9 @@ class LocalServer:
             except (OSError, subprocess.SubprocessError):
                 pass
         pid = self.process.pid if self.process else self.pid
+        if self.process is None and self.pid_create_time is not None and not self._pid_matches():
+            self._cleanup_env_file()
+            return True  # pid was recycled; never kill an innocent process
         if pid:
             try:
                 os.killpg(pid, signal.SIGTERM)
@@ -100,6 +112,7 @@ class LocalServer:
             deadline = time.time() + timeout
             while time.time() < deadline:
                 if not self.is_running():
+                    self._cleanup_env_file()
                     return True
                 time.sleep(0.2)
             try:
@@ -107,7 +120,17 @@ class LocalServer:
             except (ProcessLookupError, PermissionError, OSError):
                 pass
             time.sleep(0.3)
+        if not self.is_running():
+            self._cleanup_env_file()
         return not self.is_running()
+
+    def _cleanup_env_file(self) -> None:
+        """Remove the temp env file (HF token for docker) once the server is gone."""
+        if self.env_file:
+            try:
+                self.env_file.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------- status
 
@@ -115,12 +138,21 @@ class LocalServer:
         if self.process is not None:
             return self.process.poll() is None
         if self.pid:
+            if self.pid_create_time is not None and not self._pid_matches():
+                return False  # pid recycled by an unrelated process
             try:
                 os.kill(self.pid, 0)
                 return True
             except (ProcessLookupError, PermissionError, OSError):
                 return False
         return False
+
+    def _pid_matches(self) -> bool:
+        """True only when the live process at self.pid has our stored start time."""
+        try:
+            return abs(psutil.Process(self.pid).create_time() - self.pid_create_time) < 1.0
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
 
     def exit_code(self) -> Optional[int]:
         if self.process is not None:
@@ -173,8 +205,10 @@ class LocalServer:
             "env_keys": sorted(self.env.keys()),  # never persist env values (tokens)
             "container_name": self.container_name,
             "pid": self.pid,
+            "pid_create_time": self.pid_create_time,
             "started_at": self.started_at,
             "log_path": str(self.log_path),
+            "env_file": str(self.env_file) if self.env_file else None,
         }
 
     @classmethod
@@ -191,4 +225,6 @@ class LocalServer:
             pid=record.get("pid"),
             started_at=record.get("started_at"),
             log_path=record.get("log_path"),
+            pid_create_time=record.get("pid_create_time"),
+            env_file=record.get("env_file"),
         )

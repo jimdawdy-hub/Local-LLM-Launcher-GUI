@@ -241,6 +241,7 @@ class OpenWebUIManager:
         port: int = DEFAULT_PORT,
         connect_urls: Optional[List[str]] = None,
         open_browser: bool = True,
+        host: str = "127.0.0.1",
     ) -> Dict[str, Any]:
         """Start Open WebUI, optionally pre-connected to running model endpoints,
         and open the browser once it's ready.
@@ -291,7 +292,7 @@ class OpenWebUIManager:
             engine="openwebui",
             model_label="Open WebUI",
             port=port,
-            argv=[binary, "serve", "--port", str(port)],
+            argv=[binary, "serve", "--host", host, "--port", str(port)],
             env=env,
             log_dir=self.log_dir,
         )

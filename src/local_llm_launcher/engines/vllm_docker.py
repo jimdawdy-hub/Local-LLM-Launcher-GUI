@@ -34,12 +34,13 @@ def build(model: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
 
     container_name = f"llml-{uuid.uuid4().hex[:8]}"
     gpus = '"device=' + str(config["device_ids"]) + '"' if config.get("device_ids") else "all"
+    host = config.get("host", "127.0.0.1")
 
     argv = [
         "docker", "run", "--rm",
         "--name", container_name,
         "--gpus", gpus,
-        "-p", f"{host_port}:8000",
+        "-p", f"{host}:{host_port}:8000" if host else f"{host_port}:8000",
         "-v", f"{HF_CACHE}:/root/.cache/huggingface",
         "--ipc=host",
     ]
@@ -71,4 +72,5 @@ def build(model: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
         "port": host_port,
         "health_url": f"http://127.0.0.1:{host_port}/health",
         "container_name": container_name,
+        "env_file": env_file,
     }
