@@ -54,6 +54,43 @@ def test_launch_auto_increments_port(tmp_path):
         blocker.close()
 
 
+def test_launch_resolves_port_before_build_spec(tmp_path, monkeypatch):
+    import socket
+
+    from local_llm_launcher.registry import find_free_port
+
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    occupied = blocker.getsockname()[1]
+    next_port = find_free_port(occupied + 1)
+    try:
+        mgr = ServerManager(app_dir=tmp_path)
+        seen_port = {}
+
+        def fake_build(engine_mode, model, config, llamacpp_binary=None):
+            # Mirrors a real builder: the config port becomes the argv port.
+            seen_port["config"] = config["port"]
+            return {
+                "argv": [sys.executable, "-c", "import time; time.sleep(60)",
+                         "--port", str(config["port"])],
+                "env": {},
+                "port": config["port"],
+            }
+
+        monkeypatch.setattr(mgr, "build_spec", fake_build)
+        srv = mgr.launch("llamacpp", GGUF, {"port": occupied})
+        try:
+            # The resolved port must reach the builder AND the argv.
+            assert seen_port["config"] == next_port
+            assert srv.port == next_port
+            assert srv.argv[srv.argv.index("--port") + 1] == str(next_port)
+        finally:
+            assert mgr.stop(srv.server_id)
+    finally:
+        blocker.close()
+
+
 def test_remove_dead_server(tmp_path, monkeypatch):
     mgr = ServerManager(app_dir=tmp_path)
     monkeypatch.setattr(mgr, "build_spec", lambda *a, **k: {

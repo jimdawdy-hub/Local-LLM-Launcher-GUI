@@ -94,6 +94,7 @@ class SettingsUpdate(BaseModel):
     hf_token: Optional[str] = None
     gguf_folders: Optional[List[str]] = None
     llamacpp_path: Optional[str] = None
+    lan_access: Optional[bool] = None
 
 
 _UNSET = object()
@@ -103,6 +104,7 @@ class SettingsPatch(BaseModel):
     hf_token: Optional[str] = _UNSET
     gguf_folders: Optional[List[str]] = _UNSET
     llamacpp_path: Optional[str] = _UNSET
+    lan_access: Optional[bool] = _UNSET
 
 
 @router.put("/settings")
@@ -118,7 +120,7 @@ def api_put_settings(body: SettingsUpdate):
 @router.patch("/settings")
 def api_patch_settings(body: Dict[str, Any]):
     changes = {}
-    for key in ("hf_token", "gguf_folders", "llamacpp_path"):
+    for key in ("hf_token", "gguf_folders", "llamacpp_path", "lan_access"):
         if key in body:
             val = body[key]
             if key == "hf_token" and val == "********":
@@ -235,6 +237,7 @@ def api_launch(body: LaunchRequest):
     config = dict(body.config)
     if body.engine_mode.startswith("vllm") and settings.data.get("hf_token") and not config.get("hf_token"):
         config["hf_token"] = settings.data["hf_token"]
+    config["host"] = "0.0.0.0" if settings.data.get("lan_access") else "127.0.0.1"
     hw = get_hardware()
     if body.engine_mode == "llamacpp" and not hw["engines"].get("llamacpp_path"):
         raise HTTPException(400, "llama.cpp (llama-server) was not found on this computer. "
@@ -283,8 +286,10 @@ def api_server_logs(server_id: str, n: int = 200):
 
 @router.post("/servers/{server_id}/stop")
 def api_server_stop(server_id: str):
-    if not servers.stop(server_id):
+    if servers.get(server_id) is None:
         raise HTTPException(404, "No such server.")
+    if not servers.stop(server_id):
+        raise HTTPException(409, "The server didn't stop — check its log for errors.")
     return {"ok": True}
 
 
@@ -341,7 +346,8 @@ def api_openwebui_launch():
         if s.get("running")
     ]
     try:
-        return openwebui.launch(connect_urls=connect_urls)
+        return openwebui.launch(connect_urls=connect_urls,
+                                host="0.0.0.0" if settings.data.get("lan_access") else "127.0.0.1")
     except RuntimeError as e:
         raise HTTPException(400, str(e))
 

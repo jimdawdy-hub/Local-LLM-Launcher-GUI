@@ -3,6 +3,46 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## 2026-08-11 — v0.3.1
+
+### Fixed: server lifecycle and loopback binding (issues 1–6)
+
+- **Port auto-increment now actually works.** The reassigned free port was
+  previously computed *after* the command line was built, so a second server
+  on a busy default port launched with the old port and failed to bind. The
+  free port is now resolved into the config before the command is built.
+- **"Stop" can no longer kill an unrelated process group.** Server records now
+  persist the process's *start time* alongside its PID, so a recycled PID (for
+  example after a reboot) is detected and never killed.
+- **Model servers and Open WebUI now default to listening on `127.0.0.1`** —
+  the same loopback-only behavior as the GUI itself — instead of `0.0.0.0`.
+  A new **LAN access** toggle in Settings re-enables `0.0.0.0` (and the
+  `--host` flag) when you actually want other devices to reach them.
+- **Host header validation added.** The API now rejects requests whose `Host`
+  header isn't `127.0.0.1` or `localhost`, closing the DNS-rebinding attack
+  that could otherwise reach state-changing endpoints from a malicious page.
+- **Docker launches no longer leak the HF token on disk.** The temporary
+  `--env-file` holding the Hugging Face token is deleted when the server stops
+  (or fails to start, or is removed).
+- **Stop failures are reported honestly.** Stopping a server that no longer
+  exists returns "no such server" (404); a server that *refuses* to stop now
+  gets its own clear error (409) instead of the misleading 404.
+
+### Fixed: Hugging Face model search (issue 12)
+
+- Search now finds **all** model families, including NVFP4 and other
+  image-text-to-text models that the old text-generation-only filter hid.
+- Multi-word queries now AND their terms, so `glimmer muse NVFP4` returns
+  models matching all three words (NVFP4, GGUF, MLX, etc. are matched against
+  both names and tags).
+- Removed arguments that the current `huggingface-hub` (1.27) dropped, which
+  made every search fail with "check your internet connection."
+
+### Added: model names link to their Hugging Face pages
+
+Model names on both the search results and the "Installed on this computer"
+lists now open the model's page on huggingface.co in a new tab.
+
 ## 2026-06-14 — v0.3.0
 
 ### Rebrand: OpsPulse-inspired frontend redesign

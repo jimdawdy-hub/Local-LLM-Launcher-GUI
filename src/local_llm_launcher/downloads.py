@@ -17,8 +17,7 @@ MAX_CONCURRENT_DOWNLOADS = 3
 def search_hub(query: str, token: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
     api = HfApi(token=token)
     results = []
-    for m in api.list_models(search=query, sort="downloads", direction=-1,
-                             limit=limit, task="text-generation"):
+    for m in api.list_models(search=query or None, sort="downloads", limit=limit):
         results.append({
             "repo_id": m.id,
             "downloads": getattr(m, "downloads", None),

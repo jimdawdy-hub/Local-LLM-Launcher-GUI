@@ -23,13 +23,17 @@ def build(model: Dict[str, Any], config: Dict[str, Any], binary: str = "llama-se
     cfg = {k: v for k, v in config.items() if k != "gguf_file"}
     flags, env, extra = build_args_and_env("llamacpp", cfg)
     port = int(config.get("port", 8080))
+    host = config.get("host", "127.0.0.1")
     # Prebuilt llama.cpp releases ship their shared libraries next to the binary;
     # without LD_LIBRARY_PATH pointing there, the server can't start.
     if os.sep in binary:
         bindir = os.path.dirname(os.path.abspath(binary))
         existing = os.environ.get("LD_LIBRARY_PATH", "")
         env["LD_LIBRARY_PATH"] = f"{bindir}:{existing}" if existing else bindir
-    argv = [binary, "-m", _pick_gguf_path(model, config)] + flags + extra
+    argv = [binary, "-m", _pick_gguf_path(model, config)]
+    if host:
+        argv.extend(["--host", host])
+    argv += flags + extra
     return {
         "argv": argv,
         "env": env,

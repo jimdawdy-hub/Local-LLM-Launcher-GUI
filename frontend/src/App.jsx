@@ -84,7 +84,7 @@ export default function App() {
             <div className="sb-logo">LL</div>
             <div className="sb-brand-text">
               <div className="sb-brand-name">Local LLM</div>
-              <div className="sb-brand-sub">Launcher v0.2.0</div>
+              <div className="sb-brand-sub">Launcher v0.3.1</div>
             </div>
           </div>
         </div>
