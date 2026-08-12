@@ -86,9 +86,11 @@ local-llm-launcher
 
 Your web browser should open automatically to `http://127.0.0.1:8765`. If it
 doesn't, open that address yourself. **This only runs on your own computer —
-nothing is sent anywhere else**, and no other device on your network can
-reach it. If port 8765 is already in use, the app automatically picks the next
-free port and tells you in the terminal.
+nothing is sent anywhere else**, and no other device on your network can reach
+it. (Model servers and Open WebUI follow the same loopback-only rule unless
+you turn on the **LAN access** toggle in Settings, which binds them to
+`0.0.0.0` for other devices on your network.) If port 8765 is already in use,
+the app automatically picks the next free port and tells you in the terminal.
 
 To stop the app, go back to the terminal window and press `Ctrl+C`.
 
