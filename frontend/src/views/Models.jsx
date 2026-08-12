@@ -10,7 +10,9 @@ function InstalledCard({ model, goLaunch }) {
     <div className="modelcard">
       <StatusBadge level={FIT_LEVEL[model.fit] || 'neutral'}>{FIT_TEXT[model.fit] || 'Unknown'}</StatusBadge>
       <div style={{ flex: 1 }}>
-        <div className="title">{model.repo_id}</div>
+        <div className="title">
+          <a href={`https://huggingface.co/${model.repo_id}`} target="_blank" rel="noreferrer">{model.repo_id}</a>
+        </div>
         <div className="meta small muted">
           <StatusBadge>{model.format}</StatusBadge>
           {model.quant && <StatusBadge>{model.quant}</StatusBadge>}
@@ -47,7 +49,9 @@ function SearchResult({ r, onPick, busy }) {
   return (
     <div className="modelcard">
       <div style={{ flex: 1 }}>
-        <div className="title">{r.repo_id}</div>
+        <div className="title">
+          <a href={`https://huggingface.co/${r.repo_id}`} target="_blank" rel="noreferrer">{r.repo_id}</a>
+        </div>
         <div className="meta small muted">
           {r.is_gguf && <StatusBadge>GGUF</StatusBadge>}
           {r.gated && <StatusBadge level="amber">license required</StatusBadge>}
