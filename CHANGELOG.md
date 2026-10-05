@@ -3,6 +3,14 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## 2026-10-04 — v0.4.7
+
+- Added `--allow-host NAME` (repeatable) so the GUI can be reached through a
+  `tailscale serve` address or similar private name. The server still listens
+  on 127.0.0.1 only; the DNS-rebinding guard now accepts those exact extra names
+  and refuses wildcards. Engine source updates still require a direct local
+  connection.
+
 ## 2026-10-04 — v0.4.6
 
 - Fixed the launcher rejecting `--split-mode tensor` with `q8_0` or `q4_0`
