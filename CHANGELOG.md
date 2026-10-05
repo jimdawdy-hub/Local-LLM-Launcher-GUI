@@ -3,6 +3,13 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## 2026-10-04 — v0.4.8
+
+- Fixed the sidebar showing a stale version (it still said v0.4.5). The
+  sidebar now reads the version from the server's `/api/about`, so it can no
+  longer drift from the installed release. A regression test refuses a
+  hand-typed version in the source or built bundle.
+
 ## 2026-10-04 — v0.4.7
 
 - Added `--allow-host NAME` (repeatable) so the GUI can be reached through a
