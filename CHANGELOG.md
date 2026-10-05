@@ -3,6 +3,19 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## Unreleased — tensor splitting with compressed conversation cache
+
+- Fixed the launcher rejecting `--split-mode tensor` with `q8_0` or `q4_0`
+  K/V cache before the engine could run. Current llama.cpp supports this
+  combination (upstream PR #23792); Flash Attention on/auto remains required.
+- Kept the selected cache types and GPU proportions unchanged in generated
+  commands. Guidance now distinguishes NVFP4 model weights from K/V cache
+  precision and warns that older engine builds may require an update, layer
+  splitting, or f16 cache.
+- Added builder, advisor and API regressions for Q5/NVFP4 GGUF metadata,
+  compressed K/V combinations, Flash Attention refusal and format boundaries.
+  These are synthetic launcher checks, not a GPU/model performance benchmark.
+
 ## 2026-09-28 — v0.4.5
 
 One **Use MTP** checkbox for both engines, and plainer explanations for every

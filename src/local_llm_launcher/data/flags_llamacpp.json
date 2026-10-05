@@ -159,7 +159,7 @@
       ],
       "category": "advanced",
       "advanced": true,
-      "help": "How the model is divided when you have more than one GPU. Layer (default) gives each GPU whole layers plus their share of conversation memory, and is the most reliable choice. Row splits each layer across the cards; it is deprecated and keeps conversation memory on the main GPU. None uses only the main GPU. Tensor is experimental: it splits individual tensors across the cards, turns off automatic fitting, and doesn't support several MoE and hybrid model types."
+      "help": "How the model is divided when you have more than one GPU. Layer (default) gives each GPU whole layers plus their share of conversation memory, and is the most reliable choice. Row splits each layer across the cards; it is deprecated and keeps conversation memory on the main GPU. None uses only the main GPU. Tensor is experimental: it splits individual tensors across the cards, turns off automatic fitting, and doesn't support several MoE and hybrid model types. Compressed K/V cache works with tensor splitting on recent llama.cpp builds (upstream PR #23792). Older builds may need an engine update, layer splitting, or f16 cache. Model weight quantization, such as NVFP4, is separate from conversation cache precision."
     },
     {
       "key": "no_kv_offload",
