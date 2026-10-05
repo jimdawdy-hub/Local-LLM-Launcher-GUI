@@ -618,3 +618,53 @@ def test_llamacpp_kv_shared_layers_keep_no_cache(tmp_path):
     path = _write_gguf(tmp_path / "shared.gguf", meta)
     a = advisor.advise("llamacpp", _gguf_file_model(path, 5.0), {"ctx_size": 8192}, DUAL_5060TI)
     assert a["budget"]["kv_cache_gb"] == round(16 * 8 * 128 * 4 * 8192 / GB, 1)
+
+
+def test_llamacpp_draft_mtp_adds_its_own_cache_and_buffers(tmp_path):
+    # llama.cpp's draft-MTP context has the same context length and cache types,
+    # caching only the MTP layer, plus its own working buffers.
+    path = _write_gguf(tmp_path / "qwen.gguf", QWEN35_27B)
+    m = _gguf_file_model(path, 15.75)
+    base = {"ctx_size": 200000, "flash_attn": "auto", "cache_type_k": "q8_0", "cache_type_v": "q4_0"}
+    off = advisor.advise("llamacpp", m, base, DUAL_5060TI)["budget"]
+    on = advisor.advise("llamacpp", m, {**base, "use_mtp": True}, DUAL_5060TI)["budget"]
+    mtp_kv = 1 * 4 * 256 * (34 / 32 + 18 / 32) * 200000 / GB
+    assert off["mtp_gb"] == 0.0
+    assert on["mtp_gb"] == round(mtp_kv + advisor.MTP_DRAFT_BUFFER_GB, 1)
+    assert on["needed_gb"] == round(15.75 + off["kv_cache_gb"] + 0.7 + on["mtp_gb"], 1)
+    raw = advisor.advise("llamacpp", m, {**base, "extra_args": "--spec-type draft-mtp --spec-draft-n-max 1"},
+                         DUAL_5060TI)["budget"]
+    assert raw["mtp_gb"] == on["mtp_gb"]
+
+
+def test_llamacpp_draft_mtp_adds_nothing_without_mtp_layers(tmp_path):
+    meta = {"general.architecture": "llama", "llama.block_count": 32,
+            "llama.attention.head_count": 32, "llama.attention.head_count_kv": 8,
+            "llama.embedding_length": 4096}
+    path = _write_gguf(tmp_path / "llama.gguf", meta)
+    a = advisor.advise("llamacpp", _gguf_file_model(path, 5.0), {"ctx_size": 8192, "use_mtp": True}, DUAL_5060TI)
+    assert a["budget"]["mtp_gb"] == 0.0
+
+
+def test_llamacpp_draft_mtp_counts_a_separate_head_file(tmp_path):
+    path = _write_gguf(tmp_path / "gemma-Q8_0.gguf", GEMMA4_12B)
+    head_meta = {"general.architecture": "gemma4-assistant", "gemma4-assistant.block_count": 2,
+                 "gemma4-assistant.attention.head_count": 16, "gemma4-assistant.attention.head_count_kv": 8,
+                 "gemma4-assistant.embedding_length": 2048}
+    head = _write_gguf(tmp_path / "mtp-gemma.gguf", head_meta)
+    m = _gguf_file_model(path, 11.8, [(head, 0.5)])
+    a = advisor.advise("llamacpp", m, {"ctx_size": 8192, "use_mtp": True}, DUAL_5060TI)["budget"]
+    head_kv = 2 * 8 * 128 * 4 * 8192 / GB
+    assert a["weights_gb"] == 11.8
+    assert a["mtp_gb"] == round(0.5 + head_kv + advisor.MTP_DRAFT_BUFFER_GB, 1)
+
+
+def test_llamacpp_draft_mtp_model_named_mtp_is_not_its_own_head(tmp_path):
+    # The real file name "Qwen3.8-27B-NVFP4-MTP-MID-HIGH.gguf" matches llama.cpp's
+    # "mtp-" head rule, but it is the model being loaded, not a separate head.
+    path = _write_gguf(tmp_path / "Qwen3.8-27B-NVFP4-MTP-MID-HIGH.gguf", QWEN35_27B)
+    a = advisor.advise("llamacpp", _gguf_file_model(path, 15.75),
+                       {"ctx_size": 200000, "cache_type_k": "q8_0", "cache_type_v": "q4_0",
+                        "flash_attn": "auto", "use_mtp": True}, DUAL_5060TI)
+    mtp_kv = 1 * 4 * 256 * (34 / 32 + 18 / 32) * 200000 / GB
+    assert a["budget"]["mtp_gb"] == round(mtp_kv + advisor.MTP_DRAFT_BUFFER_GB, 1) == 1.8

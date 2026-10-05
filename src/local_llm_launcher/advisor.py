@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from . import catalog
 from .discovery import encoder_weight_bytes
 from .engines.llamacpp import pick_gguf_path
-from .engines.mtp import _gguf
+from .engines.mtp import _gguf, is_head
 from .engines.placement import parse_device_ids, validate
 
 GB = 1024**3
@@ -34,6 +34,11 @@ WORKING_BUFFER_GB = 1.0
 # load: a 16 GB card at util 0.85 (pool ~13.5 GB) loaded 11.63 GB of weights and
 # had only ~0.09 GB left for KV — implying ~1.8 GB of working set.
 VLLM_WORKING_SET_PER_GPU_GB = 1.8
+# Working buffers of llama.cpp's draft-MTP context, beyond its own KV cache. Measured
+# once (2026-10-05): Qwen3.8 27B NVFP4, 200k context, ubatch 128, two RTX 5060 Ti used
+# 1,876 MiB more with draft-MTP than without, of which ~318 MiB was the MTP layer's
+# KV cache. Not yet checked on other models.
+MTP_DRAFT_BUFFER_GB = 1.5
 # Fraction of Apple unified memory it is sensible to give the model.
 APPLE_USABLE_FRACTION = 0.75
 # Fraction of system RAM usable for CPU-only inference.
@@ -87,7 +92,8 @@ _CACHE_TYPE_BYTES = {"f32": 4.0, "f16": 2.0, "bf16": 2.0, "q8_0": 34 / 32, "q4_0
                      "q4_1": 20 / 32, "q5_0": 22 / 32, "q5_1": 24 / 32, "iq4_nl": 18 / 32}
 
 
-def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 512) -> Optional[float]:
+def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 512,
+                mtp: bool = False) -> Optional[float]:
     """llama.cpp's KV-cache size from the GGUF header, or None when it can't be read.
 
     Counts only the layers that keep a KV cache: hybrid models such as Qwen3.5/3.6
@@ -95,6 +101,9 @@ def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 5
     rest), MTP and KV-sharing layers keep none, and per-layer head counts of 0 mark
     layers without attention. Sliding-window layers (Gemma) keep only the window plus
     one micro-batch of tokens.
+
+    With `mtp`, size the draft-MTP context's cache instead: llama.cpp gives it the
+    same context length and cache types, holding only the MTP (nextn) layers.
     """
     try:
         meta = _gguf(path)[0]
@@ -109,13 +118,19 @@ def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 5
     blocks = number("block_count")
     if not blocks:
         return None
-    layers = blocks - (number("nextn_predict_layers") or 0) - (number("attention.shared_kv_layers") or 0)
+    nextn = number("nextn_predict_layers") or 0
+    if mtp:
+        cached = range(blocks - nextn, blocks)
+    else:
+        cached = range(blocks - nextn - (number("attention.shared_kv_layers") or 0))
+    if not cached:
+        return 0.0 if mtp else None
 
     def per_layer(key: str) -> Optional[List[Any]]:
         value = meta.get(f"{arch}.{key}")
         if isinstance(value, tuple):
-            return list(value[:layers]) if len(value) >= layers else None
-        return [number(key)] * layers if number(key) else None
+            return list(value) if len(value) >= cached[-1] + 1 else None
+        return [number(key)] * blocks if number(key) else None
 
     heads = per_layer("attention.head_count")
     if f"{arch}.attention.head_count_kv" in meta:
@@ -123,13 +138,13 @@ def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 5
     else:
         kv_heads = heads  # absent means every query head has its own KV head
     embed = number("embedding_length")
-    swa = per_layer("attention.sliding_window_pattern") or [False] * layers
+    swa = per_layer("attention.sliding_window_pattern") or [False] * blocks
     window = number("attention.sliding_window")
-    interval = number("full_attention_interval")
-    if kv_heads is None or layers <= 0:
+    interval = None if mtp else number("full_attention_interval")
+    if kv_heads is None:
         return None
     total = 0.0
-    for i in range(layers):
+    for i in cached:
         if (interval and (i + 1) % interval) or not kv_heads[i]:
             continue
         sliding = bool(swa[i]) and window
@@ -142,6 +157,23 @@ def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 5
         total += tokens * kv_heads[i] * (key_len * _CACHE_TYPE_BYTES.get(cache_k, 2.0)
                                          + value_len * _CACHE_TYPE_BYTES.get(cache_v, 2.0))
     return total / GB
+
+
+def _mtp_gb(model: Dict[str, Any], cfg: Dict[str, Any], ctx: int, cache_k: str, cache_v: str,
+            ubatch: int) -> float:
+    """Extra memory for draft-MTP: a separate head file's weights and cache, or the MTP
+    layers' cache in the model file, plus the draft context's working buffers."""
+    if not (cfg.get("use_mtp") or "draft-mtp" in str(cfg.get("extra_args") or "")):
+        return 0.0
+    files = model.get("gguf_files") or []
+    main = pick_gguf_path(model, cfg) if files else None
+    # A model file can itself match the "mtp-" head rule (e.g. "...-MTP-MID-HIGH.gguf").
+    heads = [f for f in files if is_head(f["filename"]) and f["path"] != main]
+    if heads:
+        kv = _gguf_kv_gb(heads[0]["path"], ctx, cache_k, cache_v, ubatch) or 0.0
+        return heads[0]["size_bytes"] / GB + kv + MTP_DRAFT_BUFFER_GB
+    kv = _gguf_kv_gb(main, ctx, cache_k, cache_v, ubatch, mtp=True) if main else None
+    return kv + MTP_DRAFT_BUFFER_GB if kv else 0.0
 
 
 def _gguf_weights_bytes(model: Dict[str, Any], cfg: Dict[str, Any]) -> int:
@@ -441,14 +473,15 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
     weights_gb = _gguf_weights_bytes(model, cfg) / GB
 
     cache_k, cache_v = str(cfg.get("cache_type_k", "f16")), str(cfg.get("cache_type_v", "f16"))
-    kv_gb = (_gguf_kv_gb(pick_gguf_path(model, cfg), ctx, cache_k, cache_v, int(cfg.get("ubatch_size") or 512))
-             if model.get("gguf_files") else None)
+    ubatch = int(cfg.get("ubatch_size") or 512)
+    kv_gb = _gguf_kv_gb(pick_gguf_path(model, cfg), ctx, cache_k, cache_v, ubatch) if model.get("gguf_files") else None
     if kv_gb is None:
         # No readable model header: fall back to a rough guess from the parameter count.
         kv_gb_f16 = estimate_kv_gb(model.get("config") or {}, model.get("param_count_b"), ctx, seqs=1)
         mult = {"f16": 1.0, "bf16": 1.0, "f32": 2.0, "q8_0": 0.5, "q4_0": 0.25}
         kv_gb = kv_gb_f16 * (mult.get(cache_k, 1.0) + mult.get(cache_v, 1.0)) / 2
-    needed_gb = weights_gb + kv_gb + 0.7  # compute buffers
+    mtp_gb = _mtp_gb(model, cfg, ctx, cache_k, cache_v, ubatch)
+    needed_gb = weights_gb + kv_gb + 0.7 + mtp_gb  # 0.7: compute buffers
 
     if apple:
         available_gb = float(apple["memory_gb"]) * APPLE_USABLE_FRACTION
@@ -529,11 +562,12 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
     # When KV is offloaded to system RAM, it doesn't consume GPU VRAM —
     # recalculate needed_gb to reflect only weights + compute buffers on GPU.
     if no_kv:
-        needed_gb = weights_gb + 0.7  # no KV on GPU, just weights + compute buffers
+        needed_gb = weights_gb + 0.7 + mtp_gb  # no KV on GPU, just weights + compute buffers
 
     return {
         "weights_gb": round(weights_gb, 1),
         "kv_cache_gb": 0.0 if no_kv else round(kv_gb, 1),
+        "mtp_gb": round(mtp_gb, 1),
         "working_buffer_gb": 0.7,
         "overhead_gb": 0.0,
         "needed_gb": round(needed_gb, 1),
