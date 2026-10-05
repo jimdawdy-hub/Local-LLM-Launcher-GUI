@@ -139,6 +139,9 @@ _GGUF_FORMATS = {0: '<B', 1: '<b', 2: '<H', 3: '<h', 4: '<I', 5: '<i', 6: '<f', 
 
 # Real headers nest arrays at most once or twice; anything deeper is corrupt.
 _GGUF_MAX_DEPTH = 8
+# Short top-level number arrays (per-layer settings such as head counts) are kept;
+# long ones (tokenizer scores) are skipped.
+_GGUF_MAX_KEPT_ARRAY = 4096
 
 
 def _gguf_remaining(stream):
@@ -169,6 +172,9 @@ def _gguf_value(stream, kind, keep, depth=0):
         # Every element takes at least one byte (a string at least its 8-byte length).
         if count * _GGUF_SCALARS.get(inner, 8) > _gguf_remaining(stream):
             raise ValueError('truncated GGUF header')
+        if inner in _GGUF_SCALARS and keep and depth == 0 and count <= _GGUF_MAX_KEPT_ARRAY:
+            data = _gguf_read(stream, _GGUF_SCALARS[inner] * count)
+            return struct.unpack(f'<{count}{_GGUF_FORMATS[inner][1]}', data)
         if inner in _GGUF_SCALARS:
             stream.seek(_GGUF_SCALARS[inner] * count, os.SEEK_CUR)
         else:
@@ -183,7 +189,9 @@ def _gguf_value(stream, kind, keep, depth=0):
 
 @lru_cache(maxsize=64)
 def _gguf_header(path, _stamp):
-    """(scalar metadata, tensor names) from a GGUF v2/v3 header; tensor data is never read."""
+    """(metadata, tensor names) from a GGUF v2/v3 header; tensor data is never read.
+
+    Metadata holds scalars, strings and short number arrays (as tuples)."""
     with open(path, 'rb') as stream:
         magic, version = struct.unpack('<4sI', _gguf_read(stream, 8))
         if magic != b'GGUF' or version < 2:
@@ -273,8 +281,8 @@ def llamacpp(model, config, capabilities, path=None):
     if model.get('format') != 'gguf' and not model.get('gguf_files'):
         return _result('red', 'llama.cpp runs GGUF files; this model has none. Turn MTP off.')
     if path is None:
-        from .llamacpp import _pick_gguf_path
-        path = _pick_gguf_path(model, config)
+        from .llamacpp import pick_gguf_path
+        path = pick_gguf_path(model, config)
     try:
         arch, embedded = _gguf_mtp_layers(path)
     except (OSError, ValueError, struct.error, UnicodeError, MemoryError, RecursionError, OverflowError):

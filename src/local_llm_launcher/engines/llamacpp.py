@@ -10,15 +10,20 @@ from .placement import validate, wrap
 from .. import hardware
 
 
-def _pick_gguf_path(model: Dict[str, Any], config: Dict[str, Any]) -> str:
+def is_mmproj(name: str) -> bool:
+    """llama.cpp's image-projector files ("mmproj-*.gguf"); loaded only through --mmproj."""
+    return "mmproj" in name.lower()
+
+
+def pick_gguf_path(model: Dict[str, Any], config: Dict[str, Any]) -> str:
     files = model.get("gguf_files") or []
     wanted = config.get("gguf_file")
     if wanted:
         for f in files:
             if f["filename"] == wanted:
                 return f["path"]
-    # A separate MTP head file is never the model itself.
-    models = [f for f in files if not is_head(f["filename"])]
+    # A separate MTP head or image-projector (mmproj) file is never the model itself.
+    models = [f for f in files if not is_head(f["filename"]) and not is_mmproj(f["filename"])]
     if files:
         return (models or files)[0]["path"]
     return model["path"]
@@ -40,7 +45,7 @@ def build(model: Dict[str, Any], config: Dict[str, Any], binary: str = "llama-se
         bindir = os.path.dirname(os.path.abspath(binary))
         existing = os.environ.get("LD_LIBRARY_PATH", "")
         env["LD_LIBRARY_PATH"] = f"{bindir}:{existing}" if existing else bindir
-    argv = [binary, "-m", _pick_gguf_path(model, config)]
+    argv = [binary, "-m", pick_gguf_path(model, config)]
     if host:
         argv.extend(["--host", host])
     argv += flags + loading + list(config.get("_mtp_args") or ()) + extra

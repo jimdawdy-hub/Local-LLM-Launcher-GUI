@@ -263,7 +263,7 @@ def test_separate_head_file_is_passed_and_never_picked_as_the_model(tmp_path):
     head = write_gguf(tmp_path / 'mtp-gemma-4-Q4_K_M.gguf', 'gemma4-assistant', nextn=None)
     write_gguf(tmp_path / 'mtp-gemma-4-Q8_0.gguf', 'gemma4-assistant', nextn=None)
     model = gguf_model(head, main)
-    assert llamacpp._pick_gguf_path(model, {}) == main
+    assert llamacpp.pick_gguf_path(model, {}) == main
     result = mtp.llamacpp(model, ON, NEW)
     assert result['level'] == 'green'
     assert result['args'][-2:] == ['--spec-draft-model', head]
@@ -327,7 +327,7 @@ def test_head_named_with_mtp_in_the_middle_is_found_and_not_picked_as_model(tmp_
     main = write_gguf(tmp_path / 'Q4_K_M/step-3.7-Q4_K_M.gguf', 'step35', nextn=None)
     head = write_gguf(tmp_path / 'step-3.7-mtp-Q8_0.gguf', 'step35', nextn=1)
     model = gguf_model(head, main)
-    assert llamacpp._pick_gguf_path(model, {}) == main
+    assert llamacpp.pick_gguf_path(model, {}) == main
     assert mtp.llamacpp(model, ON, NEW)['args'][-2:] == ['--spec-draft-model', head]
 
 
