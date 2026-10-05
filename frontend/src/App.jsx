@@ -30,6 +30,7 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [launchModel, setLaunchModel] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [version, setVersion] = useState(null)
   const serversRequest = useRef(null)
   const hardwareRequest = useRef(null)
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light')
@@ -46,6 +47,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    api.about().then(r => setVersion(r?.version ?? null)).catch(() => setVersion(null))
+  }, [])
 
   const notify = useCallback((message, error = false) => setToast({ message, error, at: Date.now() }), [])
 
@@ -120,7 +125,7 @@ export default function App() {
             <div className="sb-logo">LL</div>
             <div className="sb-brand-text">
               <div className="sb-brand-name">Local LLM</div>
-              <div className="sb-brand-sub">Launcher v0.4.5</div>
+              <div className="sb-brand-sub">Launcher{version && ` v${version}`}</div>
             </div>
           </div>
         </div>
