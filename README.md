@@ -188,7 +188,13 @@ For llama.cpp, the advanced launch settings include:
   shares on three cards. These are proportions, not exact layer counts.
   `--split-mode layer` distributes layers and their conversation memory (KV
   cache) across the cards. The older `row` mode keeps KV on the main GPU;
-  experimental `tensor` mode has additional model and cache restrictions.
+  experimental `tensor` mode needs Flash Attention and remains model/backend
+  dependent. Recent llama.cpp builds support `tensor` with compressed `q8_0`
+  or `q4_0` K/V cache. Older builds may need updating; switching to `layer` or
+  `f16` cache is another option. NVFP4 describes model weights, not the K/V
+  cache: an NVFP4 GGUF can request Q8 conversation memory independently.
+  Safetensors-format NVFP4 models still require an engine that loads that
+  format, such as vLLM. See [upstream tensor/quantized-KV support](https://github.com/ggml-org/llama.cpp/pull/23792).
 - **MoE expert placement:** `--cpu-moe` keeps all experts (the selectively used
   parts of a mixture-of-experts model) in RAM. `--n-cpu-moe N` keeps experts
   from the first N layers in RAM; reducing N lets more live on the GPU.

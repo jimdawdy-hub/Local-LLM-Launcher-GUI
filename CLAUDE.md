@@ -9,3 +9,5 @@
 - Browser tests for shared polling must wait for initial in-flight requests instead of assuming fixed startup delays.
 - Verify documented CLI choice names against the tagged argument registry; vLLM 0.30 release prose says B12X_ATTN but its actual attention selector is B12X.
 - Run full project tests with the project's virtual-environment Python and the active worktree's PYTHONPATH; the system Python lacks the API dependencies.
+
+- Recheck upstream engine support before making an old-version limitation a universal launcher rejection; distinguish model weight quantization from K/V cache precision.

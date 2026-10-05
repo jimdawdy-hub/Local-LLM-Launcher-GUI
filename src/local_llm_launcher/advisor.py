@@ -473,7 +473,19 @@ def advise(engine: str, model: Dict[str, Any], config: Dict[str, Any], hw: Dict[
         if config.get("cpu_moe") or config.get("n_cpu_moe", 0):
             rep.flag("n_cpu_moe", YELLOW, "CPU expert offload saves GPU memory but uses RAM and may reduce speed. Exact expert sizes are unknown; lower N leaves more experts on the GPU.")
         if config.get("split_mode") == "tensor":
-            rep.flag("split_mode", YELLOW, "Experimental tensor splitting disables automatic fitting and does not support several MoE/hybrid architectures. Check your model against the installed engine; per-card fit is unknown.")
+            message = (
+                "Experimental tensor splitting disables automatic fitting and does not support "
+                "several MoE/hybrid architectures. Check your model against the installed engine; "
+                "per-card fit is unknown."
+            )
+            if any(cfg.get(key) in ("q8_0", "q4_0") for key in ("cache_type_k", "cache_type_v")):
+                message += (
+                    " Compressed K/V cache requires a llama.cpp build with tensor-split KV "
+                    "quantization support (upstream PR #23792). Older builds may reject this "
+                    "combination; update the engine, choose layer splitting, or use f16 cache. "
+                    "Model weight quantization, such as NVFP4, is separate from K/V cache precision."
+                )
+            rep.flag("split_mode", YELLOW, message)
     if config.get("extra_args"):
         rep.flag("extra_args", YELLOW, "Raw flags are appended last and may override these controls. Memory fit cannot be verified.")
     if config.get("numa") or config.get("numactl_interleave"):

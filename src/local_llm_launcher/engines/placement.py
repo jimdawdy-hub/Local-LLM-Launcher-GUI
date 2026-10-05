@@ -74,8 +74,9 @@ def validate(engine, config, numa=None):
     if mode == 'tensor':
         if config.get('flash_attn') == 'off':
             raise ValueError('Tensor splitting requires flash attention on or auto.')
-        if any(config.get(key, 'f16') not in ('f16', 'bf16', 'f32') for key in ('cache_type_k','cache_type_v')):
-            raise ValueError('Tensor splitting requires uncompressed K and V caches (f16, bf16, or f32).')
+        # Upstream PR #23792 added tensor splitting with quantized KV cache.
+        # Model/backend-specific support belongs to the installed engine, not
+        # a blanket ban based on cache precision or model weight quantization.
 
 
 def wrap(argv, config):

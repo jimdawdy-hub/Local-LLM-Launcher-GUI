@@ -9,7 +9,6 @@ from tests.test_advisor import DUAL_5060TI
     {'device': 'CUDA0,CUDA1,CUDA2', 'tensor_split': '1,1'},
     {'split_mode': 'none', 'tensor_split': '1,1'},
     {'split_mode': 'tensor', 'flash_attn': 'off'},
-    {'split_mode': 'tensor', 'cache_type_k': 'q8_0'},
     {'cpu_moe': True, 'n_cpu_moe': 2}, {'n_cpu_moe': -1},
 ])
 def test_invalid_placement_rejected(config):
