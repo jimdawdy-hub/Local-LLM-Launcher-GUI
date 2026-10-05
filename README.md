@@ -131,6 +131,19 @@ the app automatically picks the next free port and tells you in the terminal.
 
 To stop the app, go back to the terminal window and press `Ctrl+C`.
 
+**Reaching it from your other devices through Tailscale (optional).** The app
+still listens only on this computer; Tailscale's `serve` feature forwards your
+private tailnet to it. Start the app with the address Tailscale gives you:
+
+```bash
+local-llm-launcher --no-browser --allow-host mybox.tailnet-name.ts.net
+tailscale serve --bg --https=8765 http://127.0.0.1:8765
+```
+
+Then open `https://mybox.tailnet-name.ts.net:8765` on any device in your
+tailnet. `--allow-host` accepts exact names only (no wildcards) and can be
+repeated. Engine source updates stay available only from the computer itself.
+
 ## Using it — the short version
 
 1. **Dashboard** — confirms the app can see your hardware (GPU, memory) and
