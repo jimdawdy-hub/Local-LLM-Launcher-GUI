@@ -3,6 +3,20 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## 2026-10-05 — v0.5.0
+
+- llama.cpp memory estimates now come from the model file's own header: the
+  real conversation-memory (KV cache) size for hybrid, sliding-window and
+  shared-memory models, and only the model file that actually loads. Qwen3.8
+  27B NVFP4 at 200k context: was 28.2 GB, now 21.4 GB (22.2 GB measured).
+- Draft-MTP is counted: its own conversation memory plus a 1.5 GB working
+  allowance measured once on Qwen3.8 27B (23.2 GB estimated vs 23.5 GB used).
+- vLLM Text-only mode now subtracts the image/audio encoder from the estimate.
+  llama.cpp never loads the image part here, and the message now says so.
+- When the only problem is that memory looks too small, the Launch button no
+  longer refuses. It turns into a glowing red "BAD IDEA – YOU HAVE BEEN
+  WARNED" button. Real problems (missing engine, invalid settings) still block.
+
 ## 2026-10-04 — v0.4.8
 
 - Fixed the sidebar showing a stale version (it still said v0.4.5). The

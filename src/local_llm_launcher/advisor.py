@@ -11,9 +11,13 @@ and LocalModel.to_dict().
 from __future__ import annotations
 
 import re
+import struct
 from typing import Any, Dict, List, Optional
 
 from . import catalog
+from .discovery import encoder_weight_bytes
+from .engines.llamacpp import pick_gguf_path
+from .engines.mtp import _gguf, is_head
 from .engines.placement import parse_device_ids, validate
 
 GB = 1024**3
@@ -30,6 +34,11 @@ WORKING_BUFFER_GB = 1.0
 # load: a 16 GB card at util 0.85 (pool ~13.5 GB) loaded 11.63 GB of weights and
 # had only ~0.09 GB left for KV — implying ~1.8 GB of working set.
 VLLM_WORKING_SET_PER_GPU_GB = 1.8
+# Working buffers of llama.cpp's draft-MTP context, beyond its own KV cache. Measured
+# once (2026-10-05): Qwen3.8 27B NVFP4, 200k context, ubatch 128, two RTX 5060 Ti used
+# 1,876 MiB more with draft-MTP than without, of which ~318 MiB was the MTP layer's
+# KV cache. Not yet checked on other models.
+MTP_DRAFT_BUFFER_GB = 1.5
 # Fraction of Apple unified memory it is sensible to give the model.
 APPLE_USABLE_FRACTION = 0.75
 # Fraction of system RAM usable for CPU-only inference.
@@ -78,6 +87,110 @@ def estimate_kv_gb(
     return _kv_mb_per_token_heuristic(param_b) * (dtype_bytes / 2.0) * max_len * max(seqs, 1) * MB / GB
 
 
+# Bytes per stored value for llama.cpp's KV-cache types (block formats include their scales).
+_CACHE_TYPE_BYTES = {"f32": 4.0, "f16": 2.0, "bf16": 2.0, "q8_0": 34 / 32, "q4_0": 18 / 32,
+                     "q4_1": 20 / 32, "q5_0": 22 / 32, "q5_1": 24 / 32, "iq4_nl": 18 / 32}
+
+
+def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 512,
+                mtp: bool = False) -> Optional[float]:
+    """llama.cpp's KV-cache size from the GGUF header, or None when it can't be read.
+
+    Counts only the layers that keep a KV cache: hybrid models such as Qwen3.5/3.6
+    keep one every `full_attention_interval` layers (a small fixed-size state in the
+    rest), MTP and KV-sharing layers keep none, and per-layer head counts of 0 mark
+    layers without attention. Sliding-window layers (Gemma) keep only the window plus
+    one micro-batch of tokens.
+
+    With `mtp`, size the draft-MTP context's cache instead: llama.cpp gives it the
+    same context length and cache types, holding only the MTP (nextn) layers.
+    """
+    try:
+        meta = _gguf(path)[0]
+    except (OSError, ValueError, struct.error, UnicodeError, MemoryError, RecursionError, OverflowError):
+        return None
+    arch = meta.get("general.architecture")
+
+    def number(key: str) -> Optional[int]:
+        value = meta.get(f"{arch}.{key}")
+        return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+    blocks = number("block_count")
+    if not blocks:
+        return None
+    nextn = number("nextn_predict_layers") or 0
+    if mtp:
+        cached = range(blocks - nextn, blocks)
+    else:
+        cached = range(blocks - nextn - (number("attention.shared_kv_layers") or 0))
+    if not cached:
+        return 0.0 if mtp else None
+
+    def per_layer(key: str) -> Optional[List[Any]]:
+        value = meta.get(f"{arch}.{key}")
+        if isinstance(value, tuple):
+            return list(value) if len(value) >= cached[-1] + 1 else None
+        return [number(key)] * blocks if number(key) else None
+
+    heads = per_layer("attention.head_count")
+    if f"{arch}.attention.head_count_kv" in meta:
+        kv_heads = per_layer("attention.head_count_kv")
+    else:
+        kv_heads = heads  # absent means every query head has its own KV head
+    embed = number("embedding_length")
+    swa = per_layer("attention.sliding_window_pattern") or [False] * blocks
+    window = number("attention.sliding_window")
+    interval = None if mtp else number("full_attention_interval")
+    if kv_heads is None:
+        return None
+    total = 0.0
+    for i in cached:
+        if (interval and (i + 1) % interval) or not kv_heads[i]:
+            continue
+        sliding = bool(swa[i]) and window
+        default_len = embed // heads[i] if embed and heads and heads[i] else None
+        key_len = (sliding and number("attention.key_length_swa")) or number("attention.key_length") or default_len
+        value_len = (sliding and number("attention.value_length_swa")) or number("attention.value_length") or key_len
+        if not key_len or not value_len:
+            return None
+        tokens = min(ctx, window + ubatch) if sliding else ctx
+        total += tokens * kv_heads[i] * (key_len * _CACHE_TYPE_BYTES.get(cache_k, 2.0)
+                                         + value_len * _CACHE_TYPE_BYTES.get(cache_v, 2.0))
+    return total / GB
+
+
+def _mtp_gb(model: Dict[str, Any], cfg: Dict[str, Any], ctx: int, cache_k: str, cache_v: str,
+            ubatch: int) -> float:
+    """Extra memory for draft-MTP: a separate head file's weights and cache, or the MTP
+    layers' cache in the model file, plus the draft context's working buffers."""
+    if not (cfg.get("use_mtp") or "draft-mtp" in str(cfg.get("extra_args") or "")):
+        return 0.0
+    files = model.get("gguf_files") or []
+    main = pick_gguf_path(model, cfg) if files else None
+    # A model file can itself match the "mtp-" head rule (e.g. "...-MTP-MID-HIGH.gguf").
+    heads = [f for f in files if is_head(f["filename"]) and f["path"] != main]
+    if heads:
+        kv = _gguf_kv_gb(heads[0]["path"], ctx, cache_k, cache_v, ubatch) or 0.0
+        return heads[0]["size_bytes"] / GB + kv + MTP_DRAFT_BUFFER_GB
+    kv = _gguf_kv_gb(main, ctx, cache_k, cache_v, ubatch, mtp=True) if main else None
+    return kv + MTP_DRAFT_BUFFER_GB if kv else 0.0
+
+
+def _gguf_weights_bytes(model: Dict[str, Any], cfg: Dict[str, Any]) -> int:
+    """Size of the GGUF llama-server will load (every split of it), not the whole repo."""
+    files = model.get("gguf_files") or []
+    if not files:
+        return model["size_bytes"]
+    path = pick_gguf_path(model, cfg)
+    split = re.search(r"-\d{5}-of-(\d{5})\.gguf$", path)
+    if split:
+        part = re.compile(re.escape(path[:split.start()]) + r"-\d{5}-of-" + split[1] + r"\.gguf$")
+        chosen = [f for f in files if part.fullmatch(f["path"])]
+    else:
+        chosen = [f for f in files if f["path"] == path]
+    return sum(f["size_bytes"] for f in chosen) or model["size_bytes"]
+
+
 def _selected_gpus(hw: Dict[str, Any], config: Dict[str, Any]) -> List[Dict[str, Any]]:
     gpus = hw.get("gpus") or []
     raw = config.get("device_ids")
@@ -121,6 +234,11 @@ def _merged_config(engine: str, config: Dict[str, Any]) -> Dict[str, Any]:
 def _advise_vllm(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, Any], rep: _Report) -> Dict[str, Any]:
     gpus = _selected_gpus(hw, cfg)
     weights_gb = model["size_bytes"] / GB
+    # Text-only mode skips the image/audio encoder, so leave its weights out.
+    skipped_encoder_gb = 0.0
+    if model.get("multimodal") and cfg.get("language_model_only"):
+        skipped_encoder_gb = encoder_weight_bytes(model["path"]) / GB
+        weights_gb -= skipped_encoder_gb
 
     # Hard blockers first.
     if model.get("format") == "gguf":
@@ -258,11 +376,14 @@ def _advise_vllm(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, Any],
                  "This model can also process images/audio, and loading that part uses GPU "
                  "memory. If you only need text chat, turn on Text-only mode to skip it and "
                  "free memory — often the difference between fitting and not.")
+    elif model.get("multimodal") and text_only and skipped_encoder_gb:
+        rep.flag("language_model_only", GREEN,
+                 f"Text-only mode on — the image/audio encoder (~{skipped_encoder_gb:.1f} GB) "
+                 "won't be loaded, and the estimate below already leaves it out.")
     elif model.get("multimodal") and text_only:
         rep.flag("language_model_only", GREEN,
-                 "Text-only mode on — the image/audio encoder won't be loaded, so the real "
-                 "GPU memory use will be lower than the estimate below (which assumes the full "
-                 "model). Good lever for a tight fit.")
+                 "Text-only mode on — the image/audio encoder won't be loaded. Its size couldn't "
+                 "be read from the model files, so the estimate below still includes it.")
 
     # Load-time headroom per GPU: total capacity can look fine while one card —
     # usually the one driving the monitors — lacks FREE memory for its share of
@@ -349,14 +470,18 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
     apple = hw.get("apple_silicon")
     ngl = int(cfg.get("n_gpu_layers", 999))
     ctx = int(cfg.get("ctx_size", 8192))
-    weights_gb = model["size_bytes"] / GB
+    weights_gb = _gguf_weights_bytes(model, cfg) / GB
 
-    kv_gb_f16 = estimate_kv_gb(model.get("config") or {}, model.get("param_count_b"), ctx, seqs=1)
-    mult = {"f16": 1.0, "bf16": 1.0, "f32": 2.0, "q8_0": 0.5, "q4_0": 0.25}
-    k_mult = mult.get(str(cfg.get("cache_type_k", "f16")), 1.0)
-    v_mult = mult.get(str(cfg.get("cache_type_v", "f16")), 1.0)
-    kv_gb = kv_gb_f16 * (k_mult + v_mult) / 2
-    needed_gb = weights_gb + kv_gb + 0.7  # compute buffers
+    cache_k, cache_v = str(cfg.get("cache_type_k", "f16")), str(cfg.get("cache_type_v", "f16"))
+    ubatch = int(cfg.get("ubatch_size") or 512)
+    kv_gb = _gguf_kv_gb(pick_gguf_path(model, cfg), ctx, cache_k, cache_v, ubatch) if model.get("gguf_files") else None
+    if kv_gb is None:
+        # No readable model header: fall back to a rough guess from the parameter count.
+        kv_gb_f16 = estimate_kv_gb(model.get("config") or {}, model.get("param_count_b"), ctx, seqs=1)
+        mult = {"f16": 1.0, "bf16": 1.0, "f32": 2.0, "q8_0": 0.5, "q4_0": 0.25}
+        kv_gb = kv_gb_f16 * (mult.get(cache_k, 1.0) + mult.get(cache_v, 1.0)) / 2
+    mtp_gb = _mtp_gb(model, cfg, ctx, cache_k, cache_v, ubatch)
+    needed_gb = weights_gb + kv_gb + 0.7 + mtp_gb  # 0.7: compute buffers
 
     if apple:
         available_gb = float(apple["memory_gb"]) * APPLE_USABLE_FRACTION
@@ -381,14 +506,14 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
                      f"(~{available_gb:.0f} GB usable). Lower this number to put some layers in RAM — "
                      f"it still runs, just slower. Try reducing until it loads.")
 
-    if model.get("multimodal") and not cfg.get("no_mmproj"):
-        rep.flag("no_mmproj", YELLOW,
-                 "This model can also process images. If you only need text chat, turn on "
-                 "Text-only mode to skip loading the vision part and save memory.")
-    elif model.get("multimodal") and cfg.get("no_mmproj"):
+    # llama-server loads an image projector (mmproj file) only through --mmproj or
+    # when it downloads the model itself (-hf); the launcher does neither, so the
+    # vision part is never loaded and Text-only changes nothing here.
+    if model.get("multimodal"):
         rep.flag("no_mmproj", GREEN,
-                 "Text-only mode on — the vision part won't be loaded, so real memory use "
-                 "will be a bit lower than the estimate below.")
+                 "The launcher loads only the main model file, so the image part (the 'mmproj' "
+                 "file) is never loaded with llama.cpp, with or without Text-only mode. The "
+                 "estimate below leaves it out.")
 
     if str(cfg.get("cache_type_v", "f16")) in ("q8_0", "q4_0") and str(cfg.get("flash_attn", "auto")) == "off":
         rep.flag("cache_type_v", RED,
@@ -437,11 +562,12 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
     # When KV is offloaded to system RAM, it doesn't consume GPU VRAM —
     # recalculate needed_gb to reflect only weights + compute buffers on GPU.
     if no_kv:
-        needed_gb = weights_gb + 0.7  # no KV on GPU, just weights + compute buffers
+        needed_gb = weights_gb + 0.7 + mtp_gb  # no KV on GPU, just weights + compute buffers
 
     return {
         "weights_gb": round(weights_gb, 1),
         "kv_cache_gb": 0.0 if no_kv else round(kv_gb, 1),
+        "mtp_gb": round(mtp_gb, 1),
         "working_buffer_gb": 0.7,
         "overhead_gb": 0.0,
         "needed_gb": round(needed_gb, 1),
@@ -523,14 +649,15 @@ def advise(engine: str, model: Dict[str, Any], config: Dict[str, Any], hw: Dict[
         details = list(rep.details)
         # When a vision model is tight or over budget and text-only isn't on yet,
         # point to it as the first thing to try — it's the biggest lever here.
-        text_only_key = "language_model_only" if engine == "vllm" else "no_mmproj"
-        if (level in (YELLOW, RED) and model.get("multimodal")
-                and not cfg.get(text_only_key)):
+        if (engine == "vllm" and level in (YELLOW, RED) and model.get("multimodal")
+                and not cfg.get("language_model_only")):
             details.insert(0,
                 "This is a vision/audio model. If you only need text, turn on Text-only "
                 "mode (below) — it skips the image/audio encoder and often frees enough "
                 "memory to fit.")
-        overall = {"level": level, "headline": head, "details": details}
+        # Outside the blockers, red only ever means "memory looks too small" — an
+        # estimate the user may choose to ignore, so the launch stays possible.
+        overall = {"level": level, "headline": head, "details": details, "override": level == RED}
 
     if custom and not rep.blockers:
         overall = {"level": YELLOW, "headline": "Memory fit is unknown with custom placement or raw flags. Check engine logs and each card's memory during loading.", "details": overall.get("details", [])}

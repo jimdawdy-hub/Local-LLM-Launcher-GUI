@@ -357,6 +357,17 @@ input::placeholder { color: var(--ink-3); }
 .launchbtn:hover { filter: brightness(1.08); }
 .launchbtn.caution { background: var(--caution); }
 .launchbtn.nogo { background: var(--ink-4); color: var(--ink-3); border-color: var(--border); }
+.launchbtn.warned {
+  background: var(--nogo); border-color: var(--nogo);
+  animation: warned-glow 1.2s ease-in-out infinite alternate;
+}
+@keyframes warned-glow {
+  from { box-shadow: 0 0 4px 1px var(--nogo); }
+  to { box-shadow: 0 0 18px 6px var(--nogo); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .launchbtn.warned { animation: none; box-shadow: 0 0 12px 4px var(--nogo); }
+}
 
 /* ---------- the VRAM gauge (ring style) ---------- */
 .gauge { display: flex; flex-direction: column; gap: 7px; }

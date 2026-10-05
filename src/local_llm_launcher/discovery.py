@@ -237,3 +237,40 @@ def list_installed(extra_gguf_folders: Optional[List[str]] = None) -> List[Local
     for folder in extra_gguf_folders or []:
         models.extend(scan_gguf_folder(folder))
     return models
+
+
+# Name segments of image/audio encoder tensors in multimodal checkpoints
+# (Qwen-VL "visual", LLaVA/Mistral "vision_tower" + "multi_modal_projector",
+# Gemma 3n "audio_tower"/"embed_vision"). Text-only mode skips loading them.
+_ENCODER_SEGMENTS = frozenset({
+    "visual", "vision_tower", "vision_model", "vision_encoder", "multi_modal_projector",
+    "mm_projector", "audio_tower", "audio_model", "audio_encoder", "embed_vision", "embed_audio",
+})
+# A safetensors header is JSON metadata; anything this large is not a real header.
+_MAX_SAFETENSORS_HEADER = 100 * 1024**2
+
+
+def _safetensors_tensor_bytes(path: Path) -> Dict[str, int]:
+    """{tensor name: byte length} from a safetensors header; tensor data is never read."""
+    with open(path, "rb") as stream:
+        length = int.from_bytes(stream.read(8), "little")
+        if not 0 < length <= _MAX_SAFETENSORS_HEADER:
+            raise ValueError("not a safetensors header")
+        header = json.loads(stream.read(length))
+    return {name: int(entry["data_offsets"][1]) - int(entry["data_offsets"][0])
+            for name, entry in header.items() if name != "__metadata__"}
+
+
+def encoder_weight_bytes(snapshot: Union[str, Path]) -> int:
+    """Bytes of image/audio encoder weights that text-only mode skips, or 0 if unknown."""
+    snap = Path(snapshot)
+    try:
+        files = _loaded_weights(snap, [f for f in snap.rglob("*.safetensors") if f.is_file()])
+        total = 0
+        for f in files:
+            for name, size in _safetensors_tensor_bytes(f).items():
+                if _ENCODER_SEGMENTS.intersection(name.split(".")):
+                    total += size
+        return total
+    except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError):
+        return 0
