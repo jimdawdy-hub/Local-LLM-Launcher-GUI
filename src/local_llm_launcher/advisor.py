@@ -655,7 +655,9 @@ def advise(engine: str, model: Dict[str, Any], config: Dict[str, Any], hw: Dict[
                 "This is a vision/audio model. If you only need text, turn on Text-only "
                 "mode (below) — it skips the image/audio encoder and often frees enough "
                 "memory to fit.")
-        overall = {"level": level, "headline": head, "details": details}
+        # Outside the blockers, red only ever means "memory looks too small" — an
+        # estimate the user may choose to ignore, so the launch stays possible.
+        overall = {"level": level, "headline": head, "details": details, "override": level == RED}
 
     if custom and not rep.blockers:
         overall = {"level": YELLOW, "headline": "Memory fit is unknown with custom placement or raw flags. Check engine logs and each card's memory during loading.", "details": overall.get("details", [])}

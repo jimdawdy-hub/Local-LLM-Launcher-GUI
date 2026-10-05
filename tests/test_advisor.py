@@ -71,6 +71,37 @@ def test_huge_model_red():
     assert a["overall"]["level"] == "red"
 
 
+def test_memory_only_red_can_be_overridden():
+    # Too big for the cards is a warning the user may ignore; the button
+    # turns into a red "you have been warned" instead of refusing.
+    a = advisor.advise("vllm", safetensors_model(size_gb=70.0, params=70.0, quant=None),
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.85,
+                        "max_model_len": 8192}, DUAL_5060TI)
+    assert a["overall"]["level"] == "red"
+    assert a["overall"]["override"] is True
+
+
+def test_load_headroom_red_can_be_overridden():
+    a = advisor.advise("vllm", safetensors_model(size_gb=23.2, params=31.0),
+                       {"tensor_parallel_size": 2, "max_model_len": 4096},
+                       busy_gpu0_hw(free0_mb=10240))
+    assert a["overall"]["level"] == "red"
+    assert a["overall"]["override"] is True
+
+
+def test_hard_blocker_cannot_be_overridden():
+    a = advisor.advise("vllm", gguf_model(), {"tensor_parallel_size": 1}, DUAL_5060TI)
+    assert a["overall"]["level"] == "red"
+    assert a["overall"].get("override") is not True
+
+
+def test_fitting_model_has_no_override():
+    a = advisor.advise("vllm", safetensors_model(size_gb=8.0, params=8.0),
+                       {"tensor_parallel_size": 2, "gpu_memory_utilization": 0.85,
+                        "max_model_len": 8192, "max_num_seqs": 1}, DUAL_5060TI)
+    assert a["overall"].get("override") is not True
+
+
 def test_tight_model_yellow():
     # ~25GB weights on ~26GB usable budget -> yellow zone
     a = advisor.advise("vllm", safetensors_model(size_gb=21.5, params=35.0),

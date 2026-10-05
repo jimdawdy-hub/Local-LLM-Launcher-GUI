@@ -215,6 +215,8 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
   const advanced = flags.filter((f) => f.advanced)
   const engineMissing = engineMode && !engineAvailable(engineMode, hardware)
   const level = engineMissing || adviceError ? 'red' : advice?.overall?.level
+  // Red from the memory estimate alone is advice, not a hard stop.
+  const warned = level === 'red' && !engineMissing && !adviceError && advice?.overall?.override === true
   const ggufChoices = model?.gguf_files ?? []
 
   const budget = advice?.budget
@@ -370,17 +372,19 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
       <div className="section">
         <div className="section-head">
           <div className="small muted">
-            {level === 'red'
+            {warned
+              ? 'The memory estimate says this won\u2019t fit. You can still try; it may fail to load or crash.'
+              : level === 'red'
               ? 'Fix the red items above before launching.'
               : level === 'yellow'
                 ? 'You can launch, but read the yellow notes first.'
                 : advice ? 'All clear for your hardware.' : 'Checking configuration…'}
           </div>
           <button
-            className={`launchbtn ${level === 'yellow' ? 'caution' : level === 'red' ? 'nogo' : ''}`}
-            disabled={launching || level === 'red' || !advice}
+            className={`launchbtn ${warned ? 'warned' : level === 'yellow' ? 'caution' : level === 'red' ? 'nogo' : ''}`}
+            disabled={launching || (level === 'red' && !warned) || !advice}
             onClick={launch}>
-            {launching ? 'Launching…' : level === 'yellow' ? 'Launch anyway' : 'Launch'}
+            {launching ? 'Launching…' : warned ? 'BAD IDEA – YOU HAVE BEEN WARNED' : level === 'yellow' ? 'Launch anyway' : 'Launch'}
           </button>
         </div>
       </div>

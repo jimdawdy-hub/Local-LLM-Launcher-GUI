@@ -146,6 +146,7 @@ def test_advice_and_launch_share_the_decision(client, monkeypatch):
     advice = client.post("/api/advise", json=body).json()
     assert advice["overall"]["level"] == "red"
     assert advice["flags"]["use_mtp"]["level"] == "red"
+    assert advice["overall"].get("override") is not True  # launch refuses, so no warned button
     launch = client.post("/api/servers", json={"engine_mode": "vllm-native", "repo_id": "x", "config": ON})
     assert launch.status_code == 400
     assert launch.json()["detail"] == advice["overall"]["headline"]
