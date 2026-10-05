@@ -3,7 +3,7 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
-## Unreleased — tensor splitting with compressed conversation cache
+## 2026-10-04 — v0.4.6
 
 - Fixed the launcher rejecting `--split-mode tensor` with `q8_0` or `q4_0`
   K/V cache before the engine could run. Current llama.cpp supports this
