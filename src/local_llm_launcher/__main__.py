@@ -24,12 +24,14 @@ def main() -> None:
     import uvicorn
 
     from . import app as app_module
+    from .api import servers
     from .registry import find_free_port
 
     port = find_free_port(args.port)
     if port != args.port:
         print(f"Port {args.port} is in use, using {port} instead.")
 
+    servers.start_watchdog()
     url = f"http://127.0.0.1:{port}"
     if not args.no_browser:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()

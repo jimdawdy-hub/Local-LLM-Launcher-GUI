@@ -546,7 +546,9 @@ def test_llamacpp_kv_from_gguf_counts_only_attention_layers(tmp_path):
                         "cache_type_k": "q8_0", "cache_type_v": "q4_0"}, DUAL_5060TI)
     expected = 16 * 4 * 256 * (34 / 32 + 18 / 32) * 200000 / GB
     assert a["budget"]["kv_cache_gb"] == round(expected, 1) == 5.0
-    assert a["budget"]["needed_gb"] == round(15.75 + expected + 0.7, 1)
+    # Two cards each reserve a working buffer, including an f16 copy of one layer's K and V.
+    compute = 2 * advisor._compute_bytes(200000, 512, 200000 * 4 * 512 * 2) / GB
+    assert a["budget"]["needed_gb"] == round(15.75 + expected + compute, 1)
 
 
 def test_llamacpp_kv_from_gguf_dense_model_f16(tmp_path):
@@ -638,8 +640,9 @@ def test_llamacpp_kv_from_gguf_sliding_window_and_per_layer_heads(tmp_path):
                         "cache_type_k": "q8_0", "cache_type_v": "q4_0"}, DUAL_5060TI)
     per_value = 34 / 32 + 18 / 32
     full = 8 * 1 * 512 * per_value * 200000
-    window = 40 * 8 * 256 * per_value * (1024 + 512)
-    assert a["budget"]["kv_cache_gb"] == round((full + window) / GB, 1) == 1.4
+    # llama-server's default 4 slots share the cache, each keeping its own window.
+    window = 40 * 8 * 256 * per_value * (1024 * 4 + 512)
+    assert a["budget"]["kv_cache_gb"] == round((full + window) / GB, 1) == 1.8
 
 
 def test_llamacpp_kv_shared_layers_keep_no_cache(tmp_path):
@@ -652,17 +655,17 @@ def test_llamacpp_kv_shared_layers_keep_no_cache(tmp_path):
 
 
 def test_llamacpp_draft_mtp_adds_its_own_cache_and_buffers(tmp_path):
-    # llama.cpp's draft-MTP context has the same context length and cache types,
-    # caching only the MTP layer, plus its own working buffers.
+    # llama.cpp's draft-MTP context has the same context length, caching only the MTP
+    # layer at f16 (the draft cache type), plus its own working buffer on one card.
     path = _write_gguf(tmp_path / "qwen.gguf", QWEN35_27B)
     m = _gguf_file_model(path, 15.75)
     base = {"ctx_size": 200000, "flash_attn": "auto", "cache_type_k": "q8_0", "cache_type_v": "q4_0"}
     off = advisor.advise("llamacpp", m, base, DUAL_5060TI)["budget"]
     on = advisor.advise("llamacpp", m, {**base, "use_mtp": True}, DUAL_5060TI)["budget"]
-    mtp_kv = 1 * 4 * 256 * (34 / 32 + 18 / 32) * 200000 / GB
+    mtp = (1 * 4 * 256 * 2 * 2 * 200000 + advisor._compute_bytes(200000, 512)) / GB
     assert off["mtp_gb"] == 0.0
-    assert on["mtp_gb"] == round(mtp_kv + advisor.MTP_DRAFT_BUFFER_GB, 1)
-    assert on["needed_gb"] == round(15.75 + off["kv_cache_gb"] + 0.7 + on["mtp_gb"], 1)
+    assert on["mtp_gb"] == round(mtp, 1)
+    assert abs(on["needed_gb"] - (off["needed_gb"] + mtp)) <= 0.1
     raw = advisor.advise("llamacpp", m, {**base, "extra_args": "--spec-type draft-mtp --spec-draft-n-max 1"},
                          DUAL_5060TI)["budget"]
     assert raw["mtp_gb"] == on["mtp_gb"]
@@ -687,7 +690,7 @@ def test_llamacpp_draft_mtp_counts_a_separate_head_file(tmp_path):
     a = advisor.advise("llamacpp", m, {"ctx_size": 8192, "use_mtp": True}, DUAL_5060TI)["budget"]
     head_kv = 2 * 8 * 128 * 4 * 8192 / GB
     assert a["weights_gb"] == 11.8
-    assert a["mtp_gb"] == round(0.5 + head_kv + advisor.MTP_DRAFT_BUFFER_GB, 1)
+    assert a["mtp_gb"] == round(0.5 + head_kv + advisor._compute_bytes(8192, 512) / GB, 1)
 
 
 def test_llamacpp_draft_mtp_model_named_mtp_is_not_its_own_head(tmp_path):
@@ -697,5 +700,112 @@ def test_llamacpp_draft_mtp_model_named_mtp_is_not_its_own_head(tmp_path):
     a = advisor.advise("llamacpp", _gguf_file_model(path, 15.75),
                        {"ctx_size": 200000, "cache_type_k": "q8_0", "cache_type_v": "q4_0",
                         "flash_attn": "auto", "use_mtp": True}, DUAL_5060TI)
-    mtp_kv = 1 * 4 * 256 * (34 / 32 + 18 / 32) * 200000 / GB
-    assert a["budget"]["mtp_gb"] == round(mtp_kv + advisor.MTP_DRAFT_BUFFER_GB, 1) == 1.8
+    mtp = (1 * 4 * 256 * 2 * 2 * 200000 + advisor._compute_bytes(200000, 512)) / GB
+    assert a["budget"]["mtp_gb"] == round(mtp, 1) == 1.1
+
+
+# ---------- llama.cpp buffers measured on gpuhost (2026-10-06) ----------
+# llama.cpp build 1537a0a8, two RTX 5060 Ti, flash attention on, `--fit off -lv 4`;
+# each figure is llama.cpp's own "buffer size" report, in MiB.
+
+MB = 1024**2
+
+QWEN35_27B_SSM = {**QWEN35_27B,
+                  "qwen35.ssm.conv_kernel": 4, "qwen35.ssm.state_size": 128,
+                  "qwen35.ssm.group_count": 16, "qwen35.ssm.time_step_rank": 48,
+                  "qwen35.ssm.inner_size": 6144}
+
+
+def _buffers(tmp_path, meta, **cfg):
+    path = _write_gguf(tmp_path / "m.gguf", meta)
+    cfg = {"flash_attn": "on", **cfg}
+    return advisor._llamacpp_buffers(path, cfg, devices=2)
+
+
+def test_llamacpp_compute_buffer_grows_with_ubatch_like_llamacpp(tmp_path):
+    q8 = {"ctx_size": 262144, "cache_type_k": "q8_0", "cache_type_v": "q8_0"}
+    for ubatch, measured_per_card in ((128, 1108.27), (512, 1360.28), (1024, 1696.30)):
+        compute = _buffers(tmp_path, QWEN35_27B_SSM, ubatch_size=ubatch, **q8)["compute"] / MB
+        assert 2 * measured_per_card <= compute <= 2 * measured_per_card * 1.06, ubatch
+    short = _buffers(tmp_path, QWEN35_27B_SSM, ubatch_size=512, ctx_size=65536,
+                     cache_type_k="q8_0", cache_type_v="q8_0")["compute"] / MB
+    assert 2 * 400.28 <= short <= 2 * 400.28 * 1.15
+    # An f16 cache needs no conversion copy, so Gemma's buffer is the micro-batch part only.
+    gemma = _buffers(tmp_path, GEMMA4_12B, ubatch_size=512, ctx_size=131072)["compute"] / MB
+    assert 2 * 253.52 <= gemma <= 2 * 253.52 * 1.05
+
+
+def test_llamacpp_recurrent_state_is_counted_per_conversation_slot(tmp_path):
+    q8 = {"ctx_size": 65536, "cache_type_k": "q8_0", "cache_type_v": "q8_0", "ubatch_size": 512}
+    default = _buffers(tmp_path, QWEN35_27B_SSM, **q8)  # llama-server opens 4 slots
+    one = _buffers(tmp_path, QWEN35_27B_SSM, parallel=1, **q8)
+    assert round(default["recurrent"] / MB, 1) == round(311.72 + 286.78, 1)
+    assert round(one["recurrent"] / MB, 1) == round(77.93 + 71.70, 1)
+    assert round(default["kv"] / MB) == 2 * 1088
+    assert _buffers(tmp_path, QWEN35_27B, **q8)["recurrent"] == 0  # no ssm keys: no state
+
+
+def test_llamacpp_sliding_window_cache_holds_a_window_per_slot(tmp_path):
+    shared = {"ctx_size": 32768, "ubatch_size": 512}
+    default = _buffers(tmp_path, GEMMA4_12B, **shared)
+    assert round(default["kv"] / MB) == 256 + 256 + 756 + 684
+    one = _buffers(tmp_path, GEMMA4_12B, parallel=1, **shared)
+    full = 8 * 1 * 512 * 2 * 2 * 32768
+    assert one["kv"] == full + 40 * 8 * 256 * 2 * 2 * 1536  # window + micro-batch, padded to 256
+
+
+def test_llamacpp_draft_mtp_keeps_an_f16_cache_and_its_own_state(tmp_path):
+    q8 = {"ctx_size": 262144, "cache_type_k": "q8_0", "cache_type_v": "q8_0", "ubatch_size": 128}
+    off = _buffers(tmp_path, QWEN35_27B_SSM, **q8)
+    on = _buffers(tmp_path, QWEN35_27B_SSM, use_mtp=True, **q8)
+    assert off["mtp"] == 0
+    # Measured: the draft context's KV 1024 MiB (f16 although the main cache is q8_0),
+    # a second copy of the recurrent state, and an 81 MiB compute buffer on one card.
+    extra = on["mtp"] / MB
+    assert 1024 + 598.5 + 81.0 <= extra <= (1024 + 598.5 + 81.0) * 1.05
+
+
+def test_llamacpp_estimate_brackets_measured_gpu_use(tmp_path):
+    # nvidia-smi totals across both cards after loading the real Qwen3.8 file
+    # (16,912,387,392 bytes). The estimate counts the whole file although llama.cpp
+    # keeps the token table (1.26 GB) in system RAM, so it should land a little above.
+    path = _write_gguf(tmp_path / "Qwen3.8-27B-NVFP4-MTP-MID-HIGH.gguf", QWEN35_27B_SSM)
+    model = _gguf_file_model(path, 16912387392 / GB)
+    for ubatch, mtp, measured_mib in ((128, False, 26246), (512, False, 26750),
+                                      (1024, False, 27422), (128, True, 28378)):
+        cfg = {"ctx_size": 262144, "cache_type_k": "q8_0", "cache_type_v": "q8_0",
+               "flash_attn": "on", "ubatch_size": ubatch, "use_mtp": mtp}
+        needed = advisor.advise("llamacpp", model, cfg, DUAL_5060TI)["budget"]["needed_gb"]
+        assert measured_mib / 1024 <= needed <= measured_mib / 1024 + 1.8, (ubatch, mtp, needed)
+
+
+def test_llamacpp_failed_load_is_not_called_a_fit(tmp_path):
+    # Measured: ubatch 512 with draft-MTP ran out of memory on the second card.
+    path = _write_gguf(tmp_path / "Qwen3.8-27B-NVFP4-MTP-MID-HIGH.gguf", QWEN35_27B_SSM)
+    cfg = {"ctx_size": 262144, "cache_type_k": "q8_0", "cache_type_v": "q8_0",
+           "flash_attn": "on", "ubatch_size": 512, "use_mtp": True}
+    a = advisor.advise("llamacpp", _gguf_file_model(path, 16912387392 / GB), cfg, DUAL_5060TI)
+    assert a["overall"]["level"] == "red"
+
+
+def test_llamacpp_near_full_warns_about_silent_cpu_offload(tmp_path):
+    path = _write_gguf(tmp_path / "qwen.gguf", QWEN35_27B_SSM)
+    cfg = {"ctx_size": 262144, "cache_type_k": "q8_0", "cache_type_v": "q8_0",
+           "flash_attn": "on", "ubatch_size": 512}
+    tight = advisor.advise("llamacpp", _gguf_file_model(path, 16912387392 / GB), cfg, DUAL_5060TI)
+    assert tight["budget"]["pct"] > 0.9
+    assert any("CPU" in d and "slower" in d for d in tight["overall"]["details"])
+    roomy = advisor.advise("llamacpp", _gguf_file_model(path, 16912387392 / GB),
+                           {**cfg, "ctx_size": 32768}, DUAL_5060TI)
+    assert not any("CPU" in d for d in roomy["overall"]["details"])
+
+
+def test_llamacpp_unset_parallel_means_llama_servers_own_four_slots(tmp_path):
+    # The launcher sends --parallel only when the user sets it; the catalog's displayed
+    # 1 is then not what runs, so the estimate must not use it.
+    path = _write_gguf(tmp_path / "qwen.gguf", QWEN35_27B_SSM)
+    cfg = {"ctx_size": 65536, "cache_type_k": "q8_0", "cache_type_v": "q8_0", "flash_attn": "on"}
+    unset = advisor.advise("llamacpp", _gguf_file_model(path, 15.75), cfg, DUAL_5060TI)["budget"]
+    one = advisor.advise("llamacpp", _gguf_file_model(path, 15.75), {**cfg, "parallel": 1}, DUAL_5060TI)["budget"]
+    assert unset["recurrent_state_gb"] == 0.6
+    assert one["recurrent_state_gb"] == 0.1

@@ -5,6 +5,7 @@ import json
 import os
 import socket
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -32,6 +33,16 @@ def find_free_port(preferred: int, max_tries: int = 100,
     raise RuntimeError(
         f"No free port found starting from {preferred} (checked {max_tries} ports)."
     )
+
+
+def _watchdog_minutes(engine_mode: str, config: Dict[str, Any]) -> int:
+    """The freeze watchdog covers llama.cpp only (vLLM has no /slots)."""
+    if engine_mode != "llamacpp":
+        return 0
+    value = config.get("watchdog_minutes")
+    if value is None:
+        value = catalog.defaults("llamacpp").get("watchdog_minutes", 0)
+    return max(int(value), 0)
 
 
 class ServerManager:
@@ -115,6 +126,7 @@ class ServerManager:
                 log_dir=self.log_dir,
                 container_name=spec.get("container_name"),
                 env_file=spec.get("env_file"),
+                watchdog_minutes=_watchdog_minutes(engine_mode, config),
             )
             started = srv.start()
             if not started:
@@ -172,6 +184,46 @@ class ServerManager:
 
     def remove(self, server_id: str) -> bool:
         return self._shutdown(server_id, remove=True)
+
+    # ----------------------------------------------------------------- watchdog
+
+    def watchdog_tick(self, now: Optional[float] = None) -> List[str]:
+        """Stop servers whose work loop has been frozen for their set minutes.
+
+        Returns the ids stopped. A frozen llama-server keeps accepting requests and
+        never answers them, and nothing else ever stops it.
+        """
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            watched = [s for s in self.servers.values() if s.watchdog_minutes > 0]
+        stopped = []
+        for srv in watched:
+            if not srv.is_running() or srv.probe() != "stuck":
+                srv.stuck_since = None
+                continue
+            if srv.stuck_since is None:
+                srv.stuck_since = now
+            elif now - srv.stuck_since >= srv.watchdog_minutes * 60:
+                minutes = f"{srv.watchdog_minutes} minute{'s' if srv.watchdog_minutes != 1 else ''}"
+                srv.note(f"watchdog: the server accepted requests but did no work for "
+                         f"{minutes}, so the launcher stopped it.")
+                srv.stuck_since = None
+                if self.stop(srv.server_id):
+                    stopped.append(srv.server_id)
+        return stopped
+
+    def start_watchdog(self, interval: float = 30.0) -> threading.Thread:
+        def loop() -> None:
+            while True:
+                time.sleep(interval)
+                try:
+                    self.watchdog_tick()
+                except Exception:  # noqa: BLE001 - the watchdog must outlive one bad probe
+                    pass
+
+        thread = threading.Thread(target=loop, name="server-watchdog", daemon=True)
+        thread.start()
+        return thread
 
     def stop_all(self) -> None:
         with self._lock:

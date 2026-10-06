@@ -34,11 +34,19 @@ WORKING_BUFFER_GB = 1.0
 # load: a 16 GB card at util 0.85 (pool ~13.5 GB) loaded 11.63 GB of weights and
 # had only ~0.09 GB left for KV — implying ~1.8 GB of working set.
 VLLM_WORKING_SET_PER_GPU_GB = 1.8
-# Working buffers of llama.cpp's draft-MTP context, beyond its own KV cache. Measured
-# once (2026-10-05): Qwen3.8 27B NVFP4, 200k context, ubatch 128, two RTX 5060 Ti used
-# 1,876 MiB more with draft-MTP than without, of which ~318 MiB was the MTP layer's
-# KV cache. Not yet checked on other models.
-MTP_DRAFT_BUFFER_GB = 1.5
+# llama.cpp's working ("compute") buffer, reserved on every card. Fitted to its own
+# buffer reports on gpuhost (2026-10-06, build 1537a0a8, two RTX 5060 Ti, flash
+# attention on; Qwen3.8 27B at 65k-262k context and Gemma 4 12B at 32k-128k, micro-
+# batches of 128-1024 tokens), within 12%, always on the high side: each micro-batch
+# token needs an f16 attention-mask row across the whole context plus ~0.25 MiB of
+# activations, and a quantized KV cache adds an f16 copy of the widest layer's K and V
+# that flash attention reads. Without flash attention the buffer is larger (unmeasured).
+_MASK_BYTES = 2
+_ACTIVATION_BYTES_PER_UBATCH_TOKEN = 0.25 * MB
+_FULL_PRECISION = {"f32", "f16", "bf16"}
+# llama-server opens this many conversation slots unless --parallel says otherwise;
+# they share one KV cache, but each keeps its own recurrent state and sliding window.
+LLAMA_DEFAULT_SLOTS = 4
 # Fraction of Apple unified memory it is sensible to give the model.
 APPLE_USABLE_FRACTION = 0.75
 # Fraction of system RAM usable for CPU-only inference.
@@ -92,18 +100,22 @@ _CACHE_TYPE_BYTES = {"f32": 4.0, "f16": 2.0, "bf16": 2.0, "q8_0": 34 / 32, "q4_0
                      "q4_1": 20 / 32, "q5_0": 22 / 32, "q5_1": 24 / 32, "iq4_nl": 18 / 32}
 
 
-def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 512,
-                mtp: bool = False) -> Optional[float]:
-    """llama.cpp's KV-cache size from the GGUF header, or None when it can't be read.
+def _gguf_cache(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 512,
+                slots: int = 1, unified: bool = False, mtp: bool = False) -> Optional[Dict[str, float]]:
+    """Bytes of llama.cpp's per-model caches from the GGUF header, or None when unreadable.
+
+    Returns `kv` (attention cache), `recurrent` (the fixed-size running state of
+    Mamba-style layers, one copy per conversation slot) and `widest_kv` (the largest
+    single layer's K+V at f16, which flash attention copies when the cache is quantized).
 
     Counts only the layers that keep a KV cache: hybrid models such as Qwen3.5/3.6
-    keep one every `full_attention_interval` layers (a small fixed-size state in the
-    rest), MTP and KV-sharing layers keep none, and per-layer head counts of 0 mark
-    layers without attention. Sliding-window layers (Gemma) keep only the window plus
-    one micro-batch of tokens.
+    keep one every `full_attention_interval` layers (a recurrent state in the rest),
+    MTP and KV-sharing layers keep none, and per-layer head counts of 0 mark layers
+    without attention. Sliding-window layers (Gemma) keep the window for every slot
+    sharing the cache, plus one micro-batch, padded to 256 tokens.
 
     With `mtp`, size the draft-MTP context's cache instead: llama.cpp gives it the
-    same context length and cache types, holding only the MTP (nextn) layers.
+    same context length, holding only the MTP (nextn) layers.
     """
     try:
         meta = _gguf(path)[0]
@@ -124,7 +136,7 @@ def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 5
     else:
         cached = range(blocks - nextn - (number("attention.shared_kv_layers") or 0))
     if not cached:
-        return 0.0 if mtp else None
+        return {"kv": 0.0, "recurrent": 0.0, "widest_kv": 0.0} if mtp else None
 
     def per_layer(key: str) -> Optional[List[Any]]:
         value = meta.get(f"{arch}.{key}")
@@ -143,9 +155,18 @@ def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 5
     interval = None if mtp else number("full_attention_interval")
     if kv_heads is None:
         return None
-    total = 0.0
+    # Mamba-style state per layer and slot, kept in f32: the convolution's last
+    # (kernel - 1) inputs plus the state matrix (llama.cpp's n_embd_r / n_embd_s).
+    state, inner = number("ssm.state_size"), number("ssm.inner_size")
+    if state and inner:
+        conv = ((number("ssm.conv_kernel") or 1) - 1) * (inner + 2 * (number("ssm.group_count") or 0) * state)
+        state_bytes = 4 * (conv + state * inner)
+    else:
+        state_bytes = 0
+    kv = recurrent = widest = 0.0
     for i in cached:
         if (interval and (i + 1) % interval) or not kv_heads[i]:
+            recurrent += state_bytes
             continue
         sliding = bool(swa[i]) and window
         default_len = embed // heads[i] if embed and heads and heads[i] else None
@@ -153,27 +174,70 @@ def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 5
         value_len = (sliding and number("attention.value_length_swa")) or number("attention.value_length") or key_len
         if not key_len or not value_len:
             return None
-        tokens = min(ctx, window + ubatch) if sliding else ctx
-        total += tokens * kv_heads[i] * (key_len * _CACHE_TYPE_BYTES.get(cache_k, 2.0)
-                                         + value_len * _CACHE_TYPE_BYTES.get(cache_v, 2.0))
-    return total / GB
+        if sliding:
+            tokens = min(ctx, window * (slots if unified else 1) + ubatch)
+            tokens = -(-tokens // 256) * 256
+        else:
+            tokens = ctx
+        kv += tokens * kv_heads[i] * (key_len * _CACHE_TYPE_BYTES.get(cache_k, 2.0)
+                                      + value_len * _CACHE_TYPE_BYTES.get(cache_v, 2.0))
+        widest = max(widest, tokens * kv_heads[i] * (key_len + value_len) * 2.0)
+    return {"kv": kv, "recurrent": recurrent * (0 if mtp else max(slots, 1)), "widest_kv": widest}
 
 
-def _mtp_gb(model: Dict[str, Any], cfg: Dict[str, Any], ctx: int, cache_k: str, cache_v: str,
-            ubatch: int) -> float:
-    """Extra memory for draft-MTP: a separate head file's weights and cache, or the MTP
-    layers' cache in the model file, plus the draft context's working buffers."""
-    if not (cfg.get("use_mtp") or "draft-mtp" in str(cfg.get("extra_args") or "")):
-        return 0.0
+def _gguf_kv_gb(path: str, ctx: int, cache_k: str, cache_v: str, ubatch: int = 512,
+                mtp: bool = False) -> Optional[float]:
+    """llama.cpp's KV-cache size in GB for one conversation slot, or None when unreadable."""
+    cache = _gguf_cache(path, ctx, cache_k, cache_v, ubatch, mtp=mtp)
+    return cache["kv"] / GB if cache else None
+
+
+def _compute_bytes(ctx: int, ubatch: int, widest_kv: float = 0.0) -> float:
+    """llama.cpp's working buffer on one card (see the calibration note at the top)."""
+    return ubatch * (_MASK_BYTES * ctx + _ACTIVATION_BYTES_PER_UBATCH_TOKEN) + widest_kv
+
+
+def _llamacpp_buffers(path: str, cfg: Dict[str, Any], devices: int = 1,
+                      head: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, float]]:
+    """Bytes llama-server allocates beyond the weights, from the GGUF header, or None.
+
+    `kv` and `recurrent` are the caches, `compute` the working buffers of every card,
+    and `mtp` the draft-MTP context: its own f16 cache (llama.cpp's draft cache type
+    defaults to f16 whatever the main cache uses), a second copy of the recurrent
+    state, and a working buffer on one card. A separate MTP head file (`head`, a
+    gguf_files entry) adds its weights and cache instead.
+    """
+    ctx = int(cfg.get("ctx_size", 8192))
+    ubatch = int(cfg.get("ubatch_size") or 512)
+    cache_k, cache_v = str(cfg.get("cache_type_k", "f16")), str(cfg.get("cache_type_v", "f16"))
+    parallel = int(cfg.get("parallel") or 0)
+    slots = parallel if parallel > 0 else LLAMA_DEFAULT_SLOTS
+    cache = _gguf_cache(path, ctx, cache_k, cache_v, ubatch, slots=slots, unified=parallel <= 0)
+    if cache is None:
+        return None
+    quantized = not {cache_k, cache_v} <= _FULL_PRECISION
+    widest = cache["widest_kv"] if quantized and str(cfg.get("flash_attn", "auto")) != "off" else 0.0
+    mtp = 0.0
+    if cfg.get("use_mtp") or "draft-mtp" in str(cfg.get("extra_args") or ""):
+        if head:
+            draft = _gguf_cache(head["path"], ctx, "f16", "f16", ubatch)
+            mtp = head["size_bytes"] + (draft["kv"] if draft else 0.0)
+        else:
+            draft = _gguf_cache(path, ctx, "f16", "f16", ubatch, mtp=True)
+            mtp = draft["kv"] + cache["recurrent"] if draft and draft["kv"] else 0.0
+        if mtp:
+            mtp += _compute_bytes(ctx, ubatch)
+    return {"kv": cache["kv"], "recurrent": cache["recurrent"],
+            "compute": devices * _compute_bytes(ctx, ubatch, widest), "mtp": mtp}
+
+
+def _mtp_head(model: Dict[str, Any], cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A separate MTP head file next to the model (gemma's mtp-*.gguf), if any."""
     files = model.get("gguf_files") or []
     main = pick_gguf_path(model, cfg) if files else None
     # A model file can itself match the "mtp-" head rule (e.g. "...-MTP-MID-HIGH.gguf").
     heads = [f for f in files if is_head(f["filename"]) and f["path"] != main]
-    if heads:
-        kv = _gguf_kv_gb(heads[0]["path"], ctx, cache_k, cache_v, ubatch) or 0.0
-        return heads[0]["size_bytes"] / GB + kv + MTP_DRAFT_BUFFER_GB
-    kv = _gguf_kv_gb(main, ctx, cache_k, cache_v, ubatch, mtp=True) if main else None
-    return kv + MTP_DRAFT_BUFFER_GB if kv else 0.0
+    return heads[0] if heads else None
 
 
 def _gguf_weights_bytes(model: Dict[str, Any], cfg: Dict[str, Any]) -> int:
@@ -474,14 +538,21 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
 
     cache_k, cache_v = str(cfg.get("cache_type_k", "f16")), str(cfg.get("cache_type_v", "f16"))
     ubatch = int(cfg.get("ubatch_size") or 512)
-    kv_gb = _gguf_kv_gb(pick_gguf_path(model, cfg), ctx, cache_k, cache_v, ubatch) if model.get("gguf_files") else None
-    if kv_gb is None:
+    # Each card llama.cpp spreads layers across gets its own working buffer.
+    devices = len(gpus) if gpus and ngl > 0 and not apple else 1
+    buffers = (_llamacpp_buffers(pick_gguf_path(model, cfg), cfg, devices, _mtp_head(model, cfg))
+               if model.get("gguf_files") else None)
+    if buffers is None:
         # No readable model header: fall back to a rough guess from the parameter count.
         kv_gb_f16 = estimate_kv_gb(model.get("config") or {}, model.get("param_count_b"), ctx, seqs=1)
         mult = {"f16": 1.0, "bf16": 1.0, "f32": 2.0, "q8_0": 0.5, "q4_0": 0.25}
         kv_gb = kv_gb_f16 * (mult.get(cache_k, 1.0) + mult.get(cache_v, 1.0)) / 2
-    mtp_gb = _mtp_gb(model, cfg, ctx, cache_k, cache_v, ubatch)
-    needed_gb = weights_gb + kv_gb + 0.7 + mtp_gb  # 0.7: compute buffers
+        recurrent_gb, mtp_gb = 0.0, 0.0
+        compute_gb = devices * _compute_bytes(ctx, ubatch) / GB
+    else:
+        kv_gb, recurrent_gb = buffers["kv"] / GB, buffers["recurrent"] / GB
+        compute_gb, mtp_gb = buffers["compute"] / GB, buffers["mtp"] / GB
+    needed_gb = weights_gb + kv_gb + recurrent_gb + compute_gb + mtp_gb
 
     if apple:
         available_gb = float(apple["memory_gb"]) * APPLE_USABLE_FRACTION
@@ -526,7 +597,7 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
                  f"You asked for {threads} threads but this machine has {hw.get('cpu_cores')} CPU "
                  f"cores. More threads than cores makes things slower, not faster.")
 
-    if int(cfg.get("parallel", 1)) > 1:
+    if int(cfg.get("parallel") or 1) > 1:
         rep.flag("parallel", GREEN,
                  f"Heads up: the context window is split between slots, so each of the "
                  f"{cfg.get('parallel')} requests gets {ctx // int(cfg.get('parallel', 1)):,} tokens.")
@@ -562,13 +633,14 @@ def _advise_llamacpp(model: Dict[str, Any], cfg: Dict[str, Any], hw: Dict[str, A
     # When KV is offloaded to system RAM, it doesn't consume GPU VRAM —
     # recalculate needed_gb to reflect only weights + compute buffers on GPU.
     if no_kv:
-        needed_gb = weights_gb + 0.7 + mtp_gb  # no KV on GPU, just weights + compute buffers
+        needed_gb = weights_gb + compute_gb + mtp_gb  # caches stay in RAM; weights + working buffers
 
     return {
         "weights_gb": round(weights_gb, 1),
         "kv_cache_gb": 0.0 if no_kv else round(kv_gb, 1),
+        "recurrent_state_gb": 0.0 if no_kv else round(recurrent_gb, 1),
         "mtp_gb": round(mtp_gb, 1),
-        "working_buffer_gb": 0.7,
+        "working_buffer_gb": round(compute_gb, 1),
         "overhead_gb": 0.0,
         "needed_gb": round(needed_gb, 1),
         "available_gb": round(available_gb, 1),
@@ -582,6 +654,10 @@ def advise(engine: str, model: Dict[str, Any], config: Dict[str, Any], hw: Dict[
     """Rate a launch configuration. Returns overall fit, memory budget, per-flag ratings."""
     validate(engine, config, hw.get("numa"))
     cfg = _merged_config(engine, config)
+    if engine == "llamacpp" and config.get("parallel") is None:
+        # The launcher sends only settings the user set; llama-server then opens its
+        # own default number of slots, not the catalog's displayed 1.
+        cfg["parallel"] = None
     rep = _Report()
 
     if engine == "vllm":
@@ -655,6 +731,16 @@ def advise(engine: str, model: Dict[str, Any], config: Dict[str, Any], hw: Dict[
                 "This is a vision/audio model. If you only need text, turn on Text-only "
                 "mode (below) — it skips the image/audio encoder and often frees enough "
                 "memory to fit.")
+        # llama-server's --fit (on by default) never refuses a model that is too big:
+        # it keeps ~1 GB free per card and quietly moves the overflow to the CPU.
+        if (engine == "llamacpp" and pct > 0.9 and hw.get("gpus") and not hw.get("apple_silicon")
+                and int(cfg.get("n_gpu_layers", 999)) > 0):
+            details.append(
+                "Near the limit, llama.cpp doesn't refuse to start: it keeps about 1 GB free on "
+                "each graphics card and quietly runs the part that doesn't fit on the CPU, which "
+                "can be 10-40x slower. If the CPU is busy and the graphics cards are nearly idle "
+                "during a run, that is what happened; shorten the context or lower the micro-batch "
+                "size (ubatch).")
         # Outside the blockers, red only ever means "memory looks too small" — an
         # estimate the user may choose to ignore, so the launch stays possible.
         overall = {"level": level, "headline": head, "details": details, "override": level == RED}

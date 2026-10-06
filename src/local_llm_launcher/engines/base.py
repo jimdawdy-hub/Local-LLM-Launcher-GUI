@@ -34,6 +34,7 @@ class LocalServer:
         log_path: Optional[str] = None,
         pid_create_time: Optional[float] = None,
         env_file: Optional[str] = None,
+        watchdog_minutes: int = 0,
     ) -> None:
         self.server_id = server_id
         self.engine = engine
@@ -47,6 +48,9 @@ class LocalServer:
         self.pid_create_time = pid_create_time
         self.started_at = started_at
         self.env_file = Path(env_file) if env_file else None
+        # Minutes a frozen server may stay stuck before the watchdog stops it (0 = off).
+        self.watchdog_minutes = watchdog_minutes
+        self.stuck_since: Optional[float] = None
         log_dir = Path(log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
         if log_path:
@@ -181,6 +185,34 @@ class LocalServer:
         except httpx.HTTPError:
             return False
 
+    def probe(self) -> str:
+        """'ok', 'loading' (not answering yet, or answering 503), or 'stuck'.
+
+        llama-server answers /health without its work loop, but /slots is queued on
+        that loop. Any answer at all means the loop is alive; a request accepted and
+        never answered means it froze. A refused connection is a server still loading.
+        """
+        base = f"http://127.0.0.1:{self.port}"
+        try:
+            if httpx.get(f"{base}/health", timeout=10.0).status_code != 200:
+                return "loading"
+            # Generous: the loop answers between micro-batches, and one micro-batch can
+            # take most of a minute when llama.cpp has moved layers to the CPU.
+            httpx.get(f"{base}/slots", timeout=60.0)
+            return "ok"
+        except httpx.TimeoutException:
+            return "stuck"
+        except httpx.HTTPError:
+            return "loading"
+
+    def note(self, text: str) -> None:
+        """Append a launcher line to the server's log."""
+        try:
+            with open(self.log_path, "ab") as log_file:
+                log_file.write(f"[launcher] {datetime.now().isoformat()} {text}\n".encode())
+        except OSError:
+            pass
+
     def tail_logs(self, n: int = 100) -> List[str]:
         try:
             with open(self.log_path, "rb") as f:
@@ -209,6 +241,7 @@ class LocalServer:
             "started_at": self.started_at,
             "log_path": str(self.log_path),
             "env_file": str(self.env_file) if self.env_file else None,
+            "watchdog_minutes": self.watchdog_minutes,
         }
 
     @classmethod
@@ -227,4 +260,5 @@ class LocalServer:
             log_path=record.get("log_path"),
             pid_create_time=record.get("pid_create_time"),
             env_file=record.get("env_file"),
+            watchdog_minutes=int(record.get("watchdog_minutes") or 0),
         )

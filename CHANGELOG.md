@@ -10,6 +10,24 @@ when the work was done.
   drafting 3 ahead crashed or froze llama.cpp three times on 2026-10-05 across
   two Qwen3.8 27B files, while 1 held up. An out-of-range value blocks launch
   with a plain message.
+- The llama.cpp memory estimate now follows llama.cpp's own buffer reports,
+  measured on gpuhost with Qwen3.8 27B and Gemma 4 12B. The working memory
+  grows with the micro-batch size (ubatch) and context, and compressed
+  conversation memory needs an extra full-size copy of one layer. Each of
+  llama-server's 4 default conversation slots keeps its own Mamba-style state
+  and sliding window. The flat 0.7 GB allowance is gone. Qwen3.8 27B at 262k
+  context with ubatch 512 was estimated at 25.0 GB and used 26.1 GB; it is
+  now estimated at 27.6 GB, slightly high because llama.cpp keeps the word
+  table (1.3 GB) in system RAM. Draft-MTP's cache is counted at full size,
+  as llama.cpp keeps it, and the 1.5 GB allowance is replaced by measured
+  parts.
+- Close to the limit, the advice now explains that llama.cpp doesn't refuse
+  a model that is too big: it quietly runs the overflow on the CPU, which can
+  be 10–40x slower.
+- New freeze watchdog for llama.cpp (Advanced, default 3 minutes, 0 = off).
+  If the server keeps accepting requests but stops working on them, the
+  launcher stops it and the Servers page explains why. A long prompt being
+  read never counts as frozen.
 
 ## 2026-10-05 — v0.5.0
 

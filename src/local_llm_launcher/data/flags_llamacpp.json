@@ -134,7 +134,7 @@
       "min": 1,
       "max": 16,
       "category": "performance",
-      "help": "How many requests llama.cpp works on at the same time (called slots). The context window is divided between them: 4 slots each get a quarter of it. Keep 1 for personal use unless several apps or people need answers at once."
+      "help": "How many requests llama.cpp works on at the same time (called slots). Left unchanged, llama.cpp opens 4 slots that share one context window. Set a number here and the context window is divided between them instead: 4 slots each get a quarter of it. Every slot also keeps a little memory of its own, so 1 uses the least."
     },
     {
       "key": "mlock",
@@ -316,6 +316,18 @@
       "category": "advanced",
       "advanced": true,
       "help": "More llama-server command-line flags, typed exactly as you would in a terminal (e.g. --seed 42). They go at the end of the command, so they override the settings above. The launcher can't check them, so its memory estimate becomes a rough guide only."
+    },
+    {
+      "key": "watchdog_minutes",
+      "flag": null,
+      "label": "Freeze watchdog (minutes)",
+      "type": "int",
+      "default": 3,
+      "min": 0,
+      "max": 60,
+      "category": "advanced",
+      "advanced": true,
+      "help": "If llama.cpp freezes (it keeps accepting requests but stops working on them), the launcher stops it after this many minutes, so it doesn't sit holding the graphics cards. Reading a very long prompt never counts as frozen. 0 turns the watchdog off."
     }
   ]
 }
