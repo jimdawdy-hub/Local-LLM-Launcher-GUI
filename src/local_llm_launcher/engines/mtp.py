@@ -43,8 +43,21 @@ _LLAMA_CHECKED_THROUGH = 11235
 # Gemma 4 ships its MTP head only as a separate GGUF file.
 _LLAMA_SIDECAR_ONLY = {'gemma4'}
 _LLAMA_UPDATE = 'Update llama.cpp (Settings → Build current engine source, or install a newer release).' + _RUN_WITHOUT
-# Before build 9235 the draft length defaulted to 16; 3 is the tuned default since.
-_LLAMA_DRAFT_MAX = '3'
+# Before build 9235 llama.cpp drafted up to 16 tokens; 3 is its tuned default since.
+# The launcher defaults to 1: on 2026-10-05, build 1537a0a8 crashed or froze three
+# times with 3 (two Qwen3.8 27B files, two RTX 5060 Ti) and held up with 1.
+_LLAMA_DRAFT_DEFAULT, _LLAMA_DRAFT_RANGE = 1, (1, 16)
+
+
+def _draft_max(config):
+    """The words-ahead count as a whole number in range, or None if invalid."""
+    value = config.get('mtp_draft_max', _LLAMA_DRAFT_DEFAULT)
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    low, high = _LLAMA_DRAFT_RANGE
+    return value if low <= value <= high else None
 
 
 def _result(level, message, args=()):
@@ -278,6 +291,10 @@ def llamacpp(model, config, capabilities, path=None):
     """Choose --spec-type draft-mtp flags for the installed llama-server, or explain why it can't."""
     if not config.get('use_mtp'):
         return _result('green', '')
+    draft_max = _draft_max(config)
+    if draft_max is None:
+        low, high = _LLAMA_DRAFT_RANGE
+        return _result('red', f'Set "MTP words drafted ahead" to a whole number from {low} to {high}.')
     if model.get('format') != 'gguf' and not model.get('gguf_files'):
         return _result('red', 'llama.cpp runs GGUF files; this model has none. Turn MTP off.')
     if path is None:
@@ -320,13 +337,13 @@ def llamacpp(model, config, capabilities, path=None):
     args = [] if '--spec-type' in raw else ['--spec-type', 'draft-mtp']
     if '--spec-type' in raw:
         notes.append('Your extra raw flags set --spec-type, so the launcher leaves out its own; include draft-mtp there to keep MTP.')
-    args += ['--spec-draft-n-max', _LLAMA_DRAFT_MAX]
+    args += ['--spec-draft-n-max', str(draft_max)]
     if head:
         args += ['--spec-draft-model', head]
     if raw & {'--spec-draft-model', '-md', '--model-draft', '--spec-draft-n-max'}:
         notes.append('Your extra raw flags also set draft options; those take priority.')
     source = f'the separate head file {Path(head).name}' if head else "the model's built-in MTP layers"
-    message = ' '.join([f'Uses {source} (--spec-type draft-mtp, up to {_LLAMA_DRAFT_MAX} guessed tokens per step).', *notes])
+    message = ' '.join([f'Uses {source} (--spec-type draft-mtp, up to {draft_max} guessed tokens per step).', *notes])
     return _result('yellow' if notes else 'green', message, args)
 
 

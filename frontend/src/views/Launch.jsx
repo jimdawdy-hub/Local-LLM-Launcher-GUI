@@ -208,7 +208,8 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
 
   const flags = (catalog?.flags ?? []).filter((f) =>
     !(engineMode === "vllm-docker" && f.key === "numactl_interleave") &&
-    !(config.split_mode === "none" && f.key === "tensor_split"))
+    !(config.split_mode === "none" && f.key === "tensor_split") &&
+    !(!config.use_mtp && f.key === "mtp_draft_max"))
   const grouped = ['essential', 'performance', 'api'].map((cat) => ({
     cat, items: flags.filter((f) => f.category === cat && !f.advanced),
   }))

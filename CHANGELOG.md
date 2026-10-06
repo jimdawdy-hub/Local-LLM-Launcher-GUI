@@ -3,6 +3,14 @@
 All notable changes to this project, in the order they happened. Dates are
 when the work was done.
 
+## 2026-10-06 — v0.5.1
+
+- New llama.cpp setting "MTP words drafted ahead" (1–16), shown when MTP is
+  on. It was fixed at 3. The default is now 1: on gpuhost (two RTX 5060 Ti),
+  drafting 3 ahead crashed or froze llama.cpp three times on 2026-10-05 across
+  two Qwen3.8 27B files, while 1 held up. An out-of-range value blocks launch
+  with a plain message.
+
 ## 2026-10-05 — v0.5.0
 
 - llama.cpp memory estimates now come from the model file's own header: the

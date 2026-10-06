@@ -225,7 +225,33 @@ def test_embedded_mtp_layers_enable_draft_mtp(tmp_path):
     path = write_gguf(tmp_path / 'Qwen3.5-Q4_K_M.gguf', 'qwen35moe')
     result = mtp.llamacpp(gguf_model(path), ON, NEW)
     assert result['level'] == 'green'
-    assert result['args'] == ['--spec-type', 'draft-mtp', '--spec-draft-n-max', '3']
+    assert result['args'] == ['--spec-type', 'draft-mtp', '--spec-draft-n-max', '1']
+
+
+def test_draft_ahead_count_is_adjustable(tmp_path):
+    path = write_gguf(tmp_path / 'Qwen3.5-Q4_K_M.gguf', 'qwen35moe')
+    result = mtp.llamacpp(gguf_model(path), {**ON, 'mtp_draft_max': 2}, NEW)
+    assert result['level'] == 'green'
+    assert result['args'] == ['--spec-type', 'draft-mtp', '--spec-draft-n-max', '2']
+    assert 'up to 2 guessed tokens' in result['message']
+
+
+@pytest.mark.parametrize('bad', [0, 17, 'three', 2.5])
+def test_draft_ahead_count_out_of_range_is_refused(tmp_path, bad):
+    path = write_gguf(tmp_path / 'Qwen3.5-Q4_K_M.gguf', 'qwen35moe')
+    result = mtp.llamacpp(gguf_model(path), {**ON, 'mtp_draft_max': bad}, NEW)
+    assert result['level'] == 'red' and result['args'] == []
+    assert '1 to 16' in result['message']
+
+
+def test_draft_ahead_setting_is_catalogued_and_never_a_raw_flag():
+    from local_llm_launcher import catalog
+    from local_llm_launcher.engines._args import build_args_and_env
+    spec = {f['key']: f for f in catalog.load_catalog('llamacpp')['flags']}['mtp_draft_max']
+    assert spec['flag'] is None and spec['type'] == 'int'
+    assert (spec['default'], spec['min'], spec['max']) == (1, 1, 16)
+    argv, env, extra = build_args_and_env('llamacpp', {'mtp_draft_max': 3})
+    assert argv == [] and env == {} and extra == []
 
 
 def test_sharded_model_finds_mtp_layers_in_a_later_split(tmp_path):
