@@ -134,7 +134,7 @@
       "min": 1,
       "max": 16,
       "category": "performance",
-      "help": "How many requests llama.cpp works on at the same time (called slots). The context window is divided between them: 4 slots each get a quarter of it. Keep 1 for personal use unless several apps or people need answers at once."
+      "help": "How many requests llama.cpp works on at the same time (called slots). Left unchanged, llama.cpp opens 4 slots that share one context window. Set a number here and the context window is divided between them instead: 4 slots each get a quarter of it. Every slot also keeps a little memory of its own, so 1 uses the least."
     },
     {
       "key": "mlock",
