@@ -103,6 +103,17 @@
       "help": "Some models, such as Qwen3.5, Qwen3-Next, GLM-4.5-Air and DeepSeek V3.2, include extra layers that guess the next few tokens ahead. The main model checks those guesses all at once and keeps the ones it agrees with, so text often arrives noticeably faster, with the same quality. Reading long prompts gets a little slower, and the extra layers use a little more memory. The launcher checks your GGUF file (and any separate mtp-*.gguf head next to it) and your installed llama.cpp, and tells you if MTP needs a llama.cpp update."
     },
     {
+      "key": "mtp_draft_max",
+      "flag": null,
+      "label": "MTP words drafted ahead",
+      "type": "int",
+      "default": 1,
+      "min": 1,
+      "max": 16,
+      "category": "performance",
+      "help": "Used only when MTP is on. How many tokens (roughly, words) the MTP layers guess ahead at each step. 1 is the safe choice. Higher numbers can be a little faster on short conversations, but on 2026-10-05 drafting 3 ahead crashed or froze llama.cpp three times on two RTX 5060 Ti cards, while 1 held up. On long conversations the speed difference is small."
+    },
+    {
       "key": "batch_size",
       "flag": "--batch-size",
       "label": "Prompt chunk size",
