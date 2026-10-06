@@ -2,6 +2,10 @@
   "description": "Log patterns mapped to plain-English explanations. First match wins.",
   "patterns": [
     {
+      "match": "watchdog: the server accepted requests but did no work",
+      "message": "The launcher stopped this server because it froze: it kept accepting requests but stopped working on them, and would never have recovered. On llama.cpp this has happened with MTP drafting several words ahead; try setting 'MTP words drafted ahead' to 1, or turning MTP off. The freeze watchdog setting controls how long the launcher waits."
+    },
+    {
       "match": "is less than desired GPU memory utilization",
       "message": "The launch failed a memory pre-check: other programs (often your desktop and browser) are using part of the GPU, so vLLM couldn't claim the fraction you asked for. Lower the 'GPU memory usage limit' slider a couple of notches, or close GPU-heavy apps and try again."
     },
