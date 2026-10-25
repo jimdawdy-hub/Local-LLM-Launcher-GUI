@@ -222,6 +222,14 @@ For llama.cpp, the advanced launch settings include:
   cache: an NVFP4 GGUF can request Q8 conversation memory independently.
   Safetensors-format NVFP4 models still require an engine that loads that
   format, such as vLLM. See [upstream tensor/quantized-KV support](https://github.com/ggml-org/llama.cpp/pull/23792).
+- **Multi-GPU communication (NCCL):** Launch → Advanced settings → **NCCL multi-GPU
+  communication** selects `nccl` (on), `internal` (off), or automatic (engine
+  default). The selection sets `GGML_CUDA_ALLREDUCE` for that model process only,
+  without changing the engine binary or other servers. Restart the model for
+  changes to take effect. NCCL must already be compiled into the engine; turning
+  it off does not require rebuilding. This applies to CUDA tensor splitting on
+  llama.cpp builds that read the variable; older builds may ignore it. Automatic
+  leaves any inherited environment setting unchanged.
 - **MoE expert placement:** `--cpu-moe` keeps all experts (the selectively used
   parts of a mixture-of-experts model) in RAM. `--n-cpu-moe N` keeps experts
   from the first N layers in RAM; reducing N lets more live on the GPU.
