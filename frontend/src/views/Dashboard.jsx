@@ -112,16 +112,7 @@ export default function Dashboard({ hardware, servers, goLaunch, setTab, notify 
   }
   const running = servers.filter((s) => s.running)
 
-  const gpu0 = hardware?.gpus?.[0]
-  const gpu1 = hardware?.gpus?.[1]
-
-  const gpu0Used = gpu0 ? ((gpu0.vram_total_mb - gpu0.vram_free_mb) / 1024).toFixed(1) : '—'
-  const gpu0Total = gpu0 ? Math.round(gpu0.vram_total_mb / 1024) : 0
-  const gpu0Pct = gpu0 ? Math.round(((gpu0.vram_total_mb - gpu0.vram_free_mb) / gpu0.vram_total_mb) * 100) : 0
-
-  const gpu1Used = gpu1 ? ((gpu1.vram_total_mb - gpu1.vram_free_mb) / 1024).toFixed(1) : '—'
-  const gpu1Total = gpu1 ? Math.round(gpu1.vram_total_mb / 1024) : 0
-  const gpu1Pct = gpu1 ? Math.round(((gpu1.vram_total_mb - gpu1.vram_free_mb) / gpu1.vram_total_mb) * 100) : 0
+  const gpus = hardware?.gpus ?? []
 
   const totalVramUsed = hardware ? (hardware.gpus.reduce((s, g) => s + (g.vram_total_mb - g.vram_free_mb), 0) / 1024).toFixed(1) : '0'
   const totalVram = hardware ? Math.round(hardware.total_vram_mb / 1024) : 0
@@ -131,18 +122,26 @@ export default function Dashboard({ hardware, servers, goLaunch, setTab, notify 
     <>
       {/* METRIC CARDS */}
       <div className="metrics">
-        {gpu0 && (
-          <MetricCard colorClass="accent" label={`GPU ${gpu0.index}`}
-            icon="■" value={gpu0Used} unit="GB"
-            sub={`${gpu0.name} · ${gpu0Total} GB total`}
-            change={`${gpu0Pct}%`} changeDir="up" />
-        )}
-        {gpu1 && (
-          <MetricCard colorClass="green" label={`GPU ${gpu1.index}`}
-            icon="■" value={gpu1Used} unit="GB"
-            sub={`${gpu1.name} · ${gpu1Total} GB total`}
-            change={`${gpu1Pct}%`} changeDir="up" />
-        )}
+        {gpus.map((gpu, i) => {
+          const used = ((gpu.vram_total_mb - gpu.vram_free_mb) / 1024).toFixed(1)
+          const total = Math.round(gpu.vram_total_mb / 1024)
+          const pct = gpu.vram_total_mb > 0
+            ? Math.round(((gpu.vram_total_mb - gpu.vram_free_mb) / gpu.vram_total_mb) * 100)
+            : 0
+          return (
+            <MetricCard
+              key={gpu.index ?? i}
+              colorClass={i % 2 === 0 ? 'accent' : 'green'}
+              label={`GPU ${gpu.index ?? i}`}
+              icon="■"
+              value={used}
+              unit="GB"
+              sub={`${gpu.name} · ${total} GB total`}
+              change={`${pct}%`}
+              changeDir="up"
+            />
+          )
+        })}
         {hardware && (
           <MetricCard label="System" icon="■"
             value={hardware.ram_gb} unit="GB"
@@ -241,7 +240,15 @@ export default function Dashboard({ hardware, servers, goLaunch, setTab, notify 
               <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em' }}>
                 {totalVramUsed} / {totalVram} GB
               </div>
-              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Used across both GPUs</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+                {gpus.length === 0
+                  ? 'No GPUs detected'
+                  : gpus.length === 1
+                    ? 'Used on GPU'
+                    : gpus.length === 2
+                      ? 'Used across both GPUs'
+                      : `Used across all ${gpus.length} GPUs`}
+              </div>
               <div style={{
                 fontSize: 12, fontWeight: 600, marginTop: 4,
                 color: totalVramPct > 80 ? 'var(--nogo)' : totalVramPct > 50 ? 'var(--caution)' : 'var(--go)',

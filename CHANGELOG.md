@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased — v0.6.0 (experimental branch)
+## 2026-10-31 — v0.6.1
+
+- Render a Dashboard metric card for every detected GPU (supporting 3+ GPUs)
+  with a responsive auto-fit grid instead of only displaying `GPU 0` and `GPU 1`.
+- Update the Dashboard VRAM Budget subtitle to reflect the actual number of
+  detected GPUs (`Used across all N GPUs`, `Used across both GPUs`, `Used on GPU`,
+  or `No GPUs detected`).
+- Set `CUDA_DEVICE_ORDER=PCI_BUS_ID` when probing `llama-server --list-devices`
+  and launching `llama.cpp` so `CUDA0`, `CUDA1`, `CUDA2`, etc. match `nvidia-smi`
+  PCI bus device numbering (consistent with vLLM and SGLang).
+- Show GPU model names alongside `CUDA0`/`CUDA1`/`CUDA2` in the Launch tab's
+  `llama.cpp devices:` summary line.
+
+## 2026-10-25 — v0.6.0
 
 - Refresh SGLang integration and parser choices for SGLang v0.5.22. Correct
   host binding, GPU selection, executable choice, and multimodal guidance.

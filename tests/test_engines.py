@@ -89,6 +89,7 @@ def test_vllm_builders_send_normalized_device_ids(raw, expected):
 def test_vllm_native_always_uses_nvidia_smi_numbering():
     # An inherited CUDA_VISIBLE_DEVICES must mean the same cards nvidia-smi lists.
     assert vllm_native.build(MODEL, {})["env"]["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+    assert llamacpp.build(GGUF, {})["env"]["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
 
 
 def test_vllm_native_extra_args():

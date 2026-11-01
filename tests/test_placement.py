@@ -59,6 +59,7 @@ def test_capability_probe_cached_by_binary_revision(tmp_path, monkeypatch):
     binary=tmp_path/'llama-server'; binary.write_text('binary')
     calls=[]
     def run(argv, **kwargs):
+        assert kwargs.get('env', {}).get('CUDA_DEVICE_ORDER') == 'PCI_BUS_ID'
         calls.append(argv)
         return SimpleNamespace(returncode=0, stdout='--load-mode MODE' if argv[-1]=='--help' else 'Available devices:\n  Vulkan0: Card A\n  CUDA2: Card B', stderr='')
     monkeypatch.setattr(hardware.subprocess,'run',run)

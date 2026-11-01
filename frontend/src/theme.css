@@ -191,7 +191,7 @@ input::placeholder { color: var(--ink-3); }
 .content { padding: 24px 28px 60px; max-width: 1080px; }
 
 /* ---------- metric cards ---------- */
-.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 22px; }
 .metric-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 16px 18px;

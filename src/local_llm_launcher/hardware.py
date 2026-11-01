@@ -317,6 +317,7 @@ def _llama_capabilities_cached(binary: str, mtime: int) -> Dict[str, Any]:
     import re
     result = {'load_mode': False, 'devices': [], 'mtp': None, 'build': None, 'server_options': {}}
     env = dict(os.environ)
+    env['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
     directory = os.path.dirname(binary)
     if directory:
         env['LD_LIBRARY_PATH'] = directory + os.pathsep + env.get('LD_LIBRARY_PATH', '')

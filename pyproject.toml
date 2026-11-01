@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-llm-launcher-gui"
-version = "0.6.0"
+version = "0.6.1"
 description = "A friendly GUI for running local LLMs with vLLM, llama.cpp, SGLang, or TGI, with hardware-aware guidance for every flag."
 readme = "README.md"
 license = { text = "MIT" }

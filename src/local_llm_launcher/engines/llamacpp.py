@@ -60,6 +60,8 @@ def build(model: Dict[str, Any], config: Dict[str, Any], binary: str = "llama-se
         no_mmap, mlock = cfg.pop("no_mmap", False), cfg.pop("mlock", False)
         loading = ["--load-mode", "mlock" if no_mmap and mlock else "none" if no_mmap else "mmap+mlock"]
     flags, env, extra = build_args_and_env("llamacpp", cfg)
+    # Match nvidia-smi's PCI bus ordering so CUDA0, CUDA1, ... correspond to GPU 0, GPU 1, ...
+    env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     port = int(config.get("port", 8080))
     raw_host = config.get("host")
     host = "127.0.0.1" if raw_host is None else str(raw_host).strip()

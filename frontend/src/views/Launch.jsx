@@ -362,7 +362,7 @@ export default function Launch({ hardware, initialModel, notify, onLaunched }) {
           {' '}These settings are optional; machines with several nodes can benefit, but compare speeds before keeping one.</div>
         {engineMode === 'llamacpp' && <div className="small" style={{ marginTop: 8 }}>
           llama.cpp devices: {(hardware?.llama_devices ?? []).length
-            ? hardware.llama_devices.map((d) => d.name).join(', ')
+            ? hardware.llama_devices.map((d) => d.description ? `${d.name} (${d.description.split(' (')[0]})` : d.name).join(', ')
             : 'not detected; leave device selection unset or enter names from llama-server --list-devices.'}
           {(hardware?.llama_devices ?? []).length > 0 && <div className="row" style={{ flexWrap: 'wrap' }}>
             {hardware.llama_devices.map((d) => <label key={d.name} title={d.description} className="row">
